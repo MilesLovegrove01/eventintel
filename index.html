@@ -1178,7 +1178,11 @@ async function callGemini(system, userContent, maxTokens) {
     body: JSON.stringify({
       system_instruction: { parts: [{ text: system }] },
       contents: [{ role: 'user', parts: [{ text: userContent }] }],
-      generationConfig: { maxOutputTokens: maxTokens, temperature: 0.7 }
+      generationConfig: {
+        maxOutputTokens: maxTokens,
+        temperature: 0.7,
+        responseMimeType: 'application/json'
+      }
     })
   });
   if (!res.ok) {
@@ -1189,8 +1193,13 @@ async function callGemini(system, userContent, maxTokens) {
     throw new Error(msg);
   }
   const data = await res.json();
-  return (data.candidates && data.candidates[0] && data.candidates[0].content &&
+  const text = (data.candidates && data.candidates[0] && data.candidates[0].content &&
           data.candidates[0].content.parts && data.candidates[0].content.parts[0].text) || '';
+  if (!text) {
+    const reason = data.candidates?.[0]?.finishReason || 'unknown';
+    throw new Error(`Empty response from Gemini (reason: ${reason}). Please try again.`);
+  }
+  return text;
 }
 function showKeyPrompt(errMsg) {
   var existing = document.getElementById('key-overlay');
@@ -1276,16 +1285,19 @@ async function runAnalysis() {
     document.getElementById('loading-label').textContent = STAGES[stageIdx];
   }, 2200);
 
-  const SYS = `You are an expert B2B marketing intelligence analyst. Return ONLY valid JSON — no preamble, no markdown fences, no explanation.`;
+  const SYS = `You are an expert B2B marketing intelligence analyst. Return ONLY valid JSON — no preamble, no markdown fences, no explanation. Start your response with { and end with }.`;
   try {
-    const raw = await callGemini(SYS, buildPrompt(name, url), 4000);
+    const raw = await callGemini(SYS, buildPrompt(name, url), 8000);
     clearInterval(stageTimer);
     let clean = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
     const fb = clean.indexOf('{'), lb = clean.lastIndexOf('}');
     if (fb !== -1 && lb > fb) clean = clean.slice(fb, lb + 1);
     let parsed;
     try { parsed = JSON.parse(clean); }
-    catch (e) { throw new Error('Could not parse response. Please try again.'); }
+    catch (e) {
+      console.error('Parse error. Raw response:', raw.slice(0, 500));
+      throw new Error('Could not parse response. Please try again.');
+    }
     setLoading(false);
     window._lastAnalysis = parsed;
     window._lastUrl = url;
