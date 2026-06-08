@@ -1693,18 +1693,71 @@ No markdown, no explanation.`);
 // ── BUILD DECK ───────────────────────────────────────────────────────────────
 
 // Encode deck to URL-safe base64 for shareable link
-function encodeDeck(html) {
-  try { return btoa(unescape(encodeURIComponent(html))); }
-  catch(e) { return btoa(html); }
-}
-function decodeDeck(b64) {
-  try { return decodeURIComponent(escape(atob(b64))); }
-  catch(e) { return atob(b64); }
-}
+// ── Deck URL sharing — store deck JSON in URL hash (works on GitHub Pages) ───
+// We store the deck DATA (company+event+deck JSON), not the rendered HTML.
+// On load, if ?deckdata= param found, we render it fresh. No server needed.
 
-// Generate a short ID
 function genId() {
   return Math.random().toString(36).slice(2, 9);
+}
+
+async function compressToBase64(str) {
+  try {
+    const bytes = new TextEncoder().encode(str);
+    const cs = new CompressionStream('deflate-raw');
+    const writer = cs.writable.getWriter();
+    writer.write(bytes);
+    writer.close();
+    const chunks = [];
+    const reader = cs.readable.getReader();
+    while(true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      chunks.push(value);
+    }
+    const compressed = new Uint8Array(chunks.reduce((a,b)=>a+b.length,0));
+    let offset = 0;
+    for (const chunk of chunks) { compressed.set(chunk, offset); offset += chunk.length; }
+    // base64url encode
+    return btoa(String.fromCharCode(...compressed)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+  } catch(e) {
+    // Fallback: plain base64
+    return btoa(unescape(encodeURIComponent(str)));
+  }
+}
+
+async function decompressFromBase64(b64) {
+  try {
+    const b64std = b64.replace(/-/g,'+').replace(/_/g,'/');
+    const binary = atob(b64std);
+    const bytes = new Uint8Array(binary.length);
+    for (let i=0; i<binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const ds = new DecompressionStream('deflate-raw');
+    const writer = ds.writable.getWriter();
+    writer.write(bytes);
+    writer.close();
+    const chunks = [];
+    const reader = ds.readable.getReader();
+    while(true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      chunks.push(value);
+    }
+    return new TextDecoder().decode(new Uint8Array(chunks.reduce((a,b)=>a+b.length,0)).fill(0).map((_,i)=>{
+      let off=0; for(const c of chunks){ if(i<off+c.length) return c[i-off]; off+=c.length; } return 0;
+    }));
+  } catch(e) {
+    try { return decodeURIComponent(escape(atob(b64))); }
+    catch(e2) { return atob(b64); }
+  }
+}
+
+// Cache decks locally too (for quick reload in same browser)
+function cacheDeckLocally(id, deckPayload) {
+  try { localStorage.setItem('deckCache:'+id, deckPayload); } catch(e) {}
+}
+function getCachedDeck(id) {
+  try { return localStorage.getItem('deckCache:'+id); } catch(e) { return null; }
 }
 
 async function buildDeck(idx) {
@@ -1721,22 +1774,19 @@ async function buildDeck(idx) {
   // ── Cache key for this specific company + event ──────────────────────────
   const cacheKey = `deck-cache:${(d.company||'').replace(/\W/g,'_')}:${(o.event_name||'').replace(/\W/g,'_')}`;
 
-  // ── Check cache first ─────────────────────────────────────────────────────
-  try {
-    const cached = await window.storage.get(cacheKey);
-    if (cached?.value) {
-      const deckHtml = decodeDeck(cached.value);
-      const deckId = genId();
-      const shareUrl = `${window.location.href.split('?')[0]}?deck=${deckId}`;
+  // ── Check local cache first ────────────────────────────────────────────────
+  const cachedPayload = getCachedDeck(cacheKey);
+  if (cachedPayload) {
+    try {
+      const { company: cc, event: ce, deck: cd } = JSON.parse(cachedPayload);
+      const deckHtml = renderDeck(cc, ce, cd);
 
-      // Show cached deck instantly
       viewer.classList.add('active');
       document.body.style.overflow = 'hidden';
       content.innerHTML = deckHtml;
+      window._currentDeck = { company: cc, event: ce, deck: cd };
 
-      // Save under new shareable ID too
-      try { await window.storage.set(`deck:${deckId}`, cached.value); } catch(e) {}
-
+      const shareUrl = await buildShareUrl(cc, ce, cd);
       if (btn) { btn.classList.remove('generating'); btn.textContent = '✓ Deck Ready'; btn.style.color = 'var(--aqua)'; btn.style.borderColor = 'rgba(121,192,153,0.4)'; }
       if (linkWrap) {
         linkWrap.style.display = 'flex';
@@ -1746,9 +1796,9 @@ async function buildDeck(idx) {
           <button class="btn-copy-link" style="color:var(--muted);border-color:var(--border-dim)" onclick="buildDeckFresh(${idx})">↺ Regenerate</button>`;
       }
       if (window._lastHsCompanyId) pushDeckLinkToHubspot(window._lastHsCompanyId, d.company, o.event_name, shareUrl);
-      return; // served from cache — done
-    }
-  } catch(e) { /* cache miss — fall through to generate */ }
+      return;
+    } catch(e) { /* cache corrupt — fall through */ }
+  }
 
   // ── No cache — generate with streaming ───────────────────────────────────
   await buildDeckFresh(idx);
@@ -1845,15 +1895,13 @@ Return ONLY this JSON (keep every string SHORT — max 20 words each):
     // ── Render and store ────────────────────────────────────────────────────
     const deckHtml = renderDeck(d, o, deck);
     content.innerHTML = deckHtml;
+    window._currentDeck = { company: d, event: o, deck };
 
-    const deckId = genId();
-    const encoded = encodeDeck(deckHtml);
-    const shareUrl = `${window.location.href.split('?')[0]}?deck=${deckId}`;
+    // Cache locally for instant reload
+    try { cacheDeckLocally(cacheKey, JSON.stringify({ company: d, event: o, deck })); } catch(e) {}
 
-    try {
-      await window.storage.set(`deck:${deckId}`, encoded);
-      await window.storage.set(cacheKey, encoded);
-    } catch(e) { console.warn('Storage unavailable:', e); }
+    // Build shareable URL with compressed deck data embedded
+    const shareUrl = await buildShareUrl(d, o, deck);
 
     if (btn) { btn.classList.remove('generating'); btn.textContent = '✓ Deck Ready'; btn.style.color = 'var(--aqua)'; btn.style.borderColor = 'rgba(121,192,153,0.4)'; }
     if (linkWrap) {
@@ -2229,26 +2277,97 @@ function renderDeck(company, event, deck) {
     </div>`;
   }
 
-  // ── Merchandise images ────────────────────────────────────────────────────
-  const merchPhotos = [PHOTOS.bag, PHOTOS.notebook, PHOTOS.bottle];
-  const merchSVGs   = [svgBag(), svgNotebook(), svgBottle()];
-  const merch = (deck.merchandise || []).map((m, i) => `
+  // ── Merchandise images — keyword matched to actual product types ─────────────
+  // Large curated library of product lifestyle photos by category
+  const PRODUCT_PHOTOS = {
+    // Apparel & clothing
+    tshirt:    'https://images.unsplash.com/photo-1503341504253-dff4815485f1?w=600&q=80&auto=format&fit=crop',
+    hoodie:    'https://images.unsplash.com/photo-1556821840-3a63f15732ce?w=600&q=80&auto=format&fit=crop',
+    jacket:    'https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=600&q=80&auto=format&fit=crop',
+    polo:      'https://images.unsplash.com/photo-1625910513970-f8ef5e43e5e9?w=600&q=80&auto=format&fit=crop',
+    cap:       'https://images.unsplash.com/photo-1588850561407-ed78c282e89b?w=600&q=80&auto=format&fit=crop',
+    hat:       'https://images.unsplash.com/photo-1588850561407-ed78c282e89b?w=600&q=80&auto=format&fit=crop',
+    // Bags & carry
+    bag:       'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?w=600&q=80&auto=format&fit=crop',
+    tote:      'https://images.unsplash.com/photo-1622560480605-d83c853bc5c3?w=600&q=80&auto=format&fit=crop',
+    backpack:  'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=600&q=80&auto=format&fit=crop',
+    satchel:   'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?w=600&q=80&auto=format&fit=crop',
+    // Stationery & desk
+    notebook:  'https://images.unsplash.com/photo-1531346878377-a5be20888e57?w=600&q=80&auto=format&fit=crop',
+    journal:   'https://images.unsplash.com/photo-1455390582262-044cdead277a?w=600&q=80&auto=format&fit=crop',
+    pen:       'https://images.unsplash.com/photo-1583485088034-697b5bc54ccd?w=600&q=80&auto=format&fit=crop',
+    stationery:'https://images.unsplash.com/photo-1586281380349-632531db7ed4?w=600&q=80&auto=format&fit=crop',
+    planner:   'https://images.unsplash.com/photo-1484480974693-6ca0a78fb36b?w=600&q=80&auto=format&fit=crop',
+    notepad:   'https://images.unsplash.com/photo-1531346878377-a5be20888e57?w=600&q=80&auto=format&fit=crop',
+    // Drinkware
+    bottle:    'https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=600&q=80&auto=format&fit=crop',
+    tumbler:   'https://images.unsplash.com/photo-1544145945-f90425340c7e?w=600&q=80&auto=format&fit=crop',
+    mug:       'https://images.unsplash.com/photo-1514228742587-6b1558fcca3d?w=600&q=80&auto=format&fit=crop',
+    flask:     'https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=600&q=80&auto=format&fit=crop',
+    cup:       'https://images.unsplash.com/photo-1514228742587-6b1558fcca3d?w=600&q=80&auto=format&fit=crop',
+    // Tech & accessories
+    powerbank: 'https://images.unsplash.com/photo-1609091839311-d5365f9ff1c5?w=600&q=80&auto=format&fit=crop',
+    charger:   'https://images.unsplash.com/photo-1609091839311-d5365f9ff1c5?w=600&q=80&auto=format&fit=crop',
+    usb:       'https://images.unsplash.com/photo-1588872657578-7efd1f1555ed?w=600&q=80&auto=format&fit=crop',
+    tech:      'https://images.unsplash.com/photo-1519389950473-47ba0277781c?w=600&q=80&auto=format&fit=crop',
+    wireless:  'https://images.unsplash.com/photo-1610438235354-a6ae5528385c?w=600&q=80&auto=format&fit=crop',
+    headphone: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=600&q=80&auto=format&fit=crop',
+    speaker:   'https://images.unsplash.com/photo-1608043152269-423dbba4e7e1?w=600&q=80&auto=format&fit=crop',
+    // Food & wellness
+    snack:     'https://images.unsplash.com/photo-1558961363-fa8fdf82db35?w=600&q=80&auto=format&fit=crop',
+    chocolate: 'https://images.unsplash.com/photo-1511381939415-e44015466834?w=600&q=80&auto=format&fit=crop',
+    wellness:  'https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?w=600&q=80&auto=format&fit=crop',
+    // Prints & branded
+    poster:    'https://images.unsplash.com/photo-1558591710-4b4a1ae0f04d?w=600&q=80&auto=format&fit=crop',
+    lanyard:   'https://images.unsplash.com/photo-1576767479736-d7c2f59c04a8?w=600&q=80&auto=format&fit=crop',
+    badge:     'https://images.unsplash.com/photo-1576767479736-d7c2f59c04a8?w=600&q=80&auto=format&fit=crop',
+    // Default fallbacks
+    default:   'https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=600&q=80&auto=format&fit=crop',
+    premium:   'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&q=80&auto=format&fit=crop',
+  };
+
+  // Match a merchandise title to the best product photo
+  function getProductPhoto(title) {
+    const t = (title || '').toLowerCase();
+    const keys = Object.keys(PRODUCT_PHOTOS);
+    // Direct keyword match
+    for (const key of keys) {
+      if (t.includes(key)) return PRODUCT_PHOTOS[key];
+    }
+    // Fuzzy matches
+    if (t.match(/cloth|apparel|wear|shirt|vest|fleece/)) return PRODUCT_PHOTOS.tshirt;
+    if (t.match(/drink|water|hydrat|flask|therm/)) return PRODUCT_PHOTOS.bottle;
+    if (t.match(/write|writ|note|book|pad|record|journal/)) return PRODUCT_PHOTOS.notebook;
+    if (t.match(/carry|tote|bag|sack|pouch/)) return PRODUCT_PHOTOS.bag;
+    if (t.match(/tech|digital|electronic|device|gadget|smart/)) return PRODUCT_PHOTOS.tech;
+    if (t.match(/power|charg|batter|cable/)) return PRODUCT_PHOTOS.powerbank;
+    if (t.match(/premium|luxury|exclusive|bespoke|custom/)) return PRODUCT_PHOTOS.premium;
+    if (t.match(/food|confection|sweet|gift set/)) return PRODUCT_PHOTOS.snack;
+    if (t.match(/health|wellb|fit|sport|activ/)) return PRODUCT_PHOTOS.wellness;
+    return PRODUCT_PHOTOS.default;
+  }
+
+  const merch = (deck.merchandise || []).map((m, i) => {
+    const productPhoto = getProductPhoto(m.title);
+    const svgFallbacks = [svgBag(), svgNotebook(), svgBottle()];
+    return `
     <div class="deck-card" style="padding:0;overflow:hidden;display:flex;flex-direction:column">
       <div style="position:relative;height:200px;overflow:hidden;flex-shrink:0">
-        ${imgWithFallback(merchPhotos[i] || PHOTOS.bag, merchSVGs[i] || svgBag(), m.title, 'filter:brightness(0.75) saturate(0.8)')}
-        <div style="position:absolute;inset:0;background:linear-gradient(to bottom,transparent 40%,rgba(15,14,12,0.75) 100%);pointer-events:none"></div>
+        ${imgWithFallback(productPhoto, svgFallbacks[i % 3], m.title, 'filter:brightness(0.78) saturate(0.85)')}
+        <div style="position:absolute;inset:0;background:linear-gradient(to bottom,transparent 35%,rgba(15,14,12,0.8) 100%);pointer-events:none"></div>
         <div style="position:absolute;top:12px;left:12px">
           <span style="font-family:var(--condensed);font-size:10px;font-weight:700;letter-spacing:0.12em;color:rgba(255,255,255,0.8);background:rgba(15,14,12,0.6);padding:4px 8px;border-radius:2px">Merchandise ${String(i+1).padStart(2,'0')}</span>
         </div>
-        ${clientLogoSrc ? `<div style="position:absolute;bottom:12px;right:12px;background:rgba(255,255,255,0.9);border-radius:4px;padding:5px 9px">
-          <img src="${clientLogoSrc}" style="height:24px;width:auto;max-width:80px;object-fit:contain;display:block" alt="${clientName}" onerror="this.parentElement.style.display='none'">
+        ${clientLogoSrc ? `<div style="position:absolute;bottom:12px;right:12px;background:rgba(255,255,255,0.92);border-radius:4px;padding:5px 9px;box-shadow:0 2px 8px rgba(0,0,0,0.3)">
+          <img src="${clientLogoSrc}" style="height:22px;width:auto;max-width:80px;object-fit:contain;display:block" alt="${clientName}" onerror="this.parentElement.style.display='none'">
         </div>` : `<div style="position:absolute;bottom:12px;right:12px;background:rgba(196,154,108,0.2);border:1px solid rgba(196,154,108,0.4);border-radius:3px;padding:5px 10px;font-family:var(--condensed);font-size:11px;font-weight:700;letter-spacing:1px;color:var(--kraft)">${clientInitials}</div>`}
       </div>
       <div style="padding:20px;flex:1;background:rgba(196,154,108,0.04);border:1px solid rgba(196,154,108,0.12);border-top:none">
         <div class="deck-card-title">${m.title}</div>
         <div class="deck-card-body">${m.description}</div>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 
   // ── ROE section ───────────────────────────────────────────────────────────
   const roeStats = deck.roe_stats || [];
@@ -2427,12 +2546,21 @@ Just create the engagement note. Return {"status":"ok"}.`
 }
 
 // Check on load if we're in deck-view mode (?deck=ID)
+// ── Build a shareable URL with deck data compressed into the hash ────────────
+async function buildShareUrl(company, event, deck) {
+  const payload = JSON.stringify({ company, event, deck });
+  const compressed = await compressToBase64(payload);
+  const base = window.location.href.split('?')[0];
+  return `${base}?deckdata=${compressed}`;
+}
+
+// ── Check on load if we're in deck-view mode ──────────────────────────────────
 (async function checkDeckMode() {
   const params = new URLSearchParams(window.location.search);
-  const deckId = params.get('deck');
-  if (!deckId) return;
+  const deckData = params.get('deckdata');
+  if (!deckData) return;
 
-  // Hide main app, show deck viewer full-screen
+  // Hide main app, show deck full-screen
   document.querySelector('header')?.remove();
   document.querySelector('.kraft-bar')?.remove();
   document.querySelector('main')?.remove();
@@ -2445,14 +2573,13 @@ Just create the engagement note. Return {"status":"ok"}.`
   document.body.style.overflow = 'auto';
 
   try {
-    const stored = await window.storage.get(`deck:${deckId}`);
-    if (stored?.value) {
-      content.innerHTML = decodeDeck(stored.value);
-    } else {
-      content.innerHTML = `<div class="deck-loading"><div class="deck-loading-text" style="color:#E24B4A">Presentation not found or expired.</div></div>`;
-    }
+    const json = await decompressFromBase64(deckData);
+    const { company, event, deck } = JSON.parse(json);
+    window._currentDeck = { company, event, deck };
+    content.innerHTML = renderDeck(company, event, deck);
   } catch(e) {
-    content.innerHTML = `<div class="deck-loading"><div class="deck-loading-text" style="color:#E24B4A">Could not load presentation.</div></div>`;
+    console.error('Deck load error:', e);
+    content.innerHTML = `<div class="deck-loading"><div class="deck-loading-text" style="color:#E24B4A">Could not load presentation. The link may be malformed.</div></div>`;
   }
 })();
 
