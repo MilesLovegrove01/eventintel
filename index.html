@@ -20,10 +20,10 @@
     --raisin:       #221E1F;
     --raisin2:      #2C2728;
     --raisin3:      #332D2E;
-    --bon-jour:     #E0DCDA;
+    --bon-jour:     #FFFFFF;
     --white-smoke:  #F5F3F3;
     --white:        #FFFFFF;
-    --muted:        rgba(224,220,218,0.5);
+    --muted:        #FFFFFF;
     --border:       rgba(196,154,108,0.2);
     --border-dim:   rgba(224,220,218,0.1);
 
@@ -455,7 +455,7 @@
   }
   .td-role {
     font-size: 12px;
-    color: rgba(224,220,218,0.6);
+    color:#FFFFFF;
     font-weight: 300;
   }
   .type-badge {
@@ -518,7 +518,7 @@
   .oc-event { font-weight: 600; font-size: 15px; color: var(--white); margin-bottom: 6px; }
   .oc-pitch {
     font-size: 13px;
-    color: rgba(224,220,218,0.7);
+    color:#FFFFFF;
     font-weight: 300;
     line-height: 1.6;
   }
@@ -582,7 +582,7 @@
   }
   .sug-why {
     font-size: 12px;
-    color: rgba(224,220,218,0.65);
+    color:#FFFFFF;
     font-weight: 300;
     line-height: 1.55;
     margin-bottom: 8px;
@@ -611,7 +611,7 @@
   }
   .footer-note {
     font-size: 11px;
-    color: rgba(224,220,218,0.2);
+    color:#FFFFFF;
     font-family: var(--condensed);
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -836,7 +836,7 @@
     font-weight: 600;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: rgba(224,220,218,0.5);
+    color:#FFFFFF;
   }
   .btn-pptx {
     height: 38px;
@@ -865,7 +865,7 @@
     height: 34px;
     padding: 0 14px;
     background: transparent;
-    color: rgba(224,220,218,0.45);
+    color:#FFFFFF;
     border: 1px solid rgba(224,220,218,0.12);
     border-radius: 2px;
     font-family: var(--condensed);
@@ -913,7 +913,7 @@
   .deck-heading {
     font-family: var(--condensed);
     font-weight: 700;
-    font-size: clamp(36px, 5vw, 64px);
+    font-size: clamp(42px, 5.4vw, 72px);
     letter-spacing: 0.02em;
     text-transform: uppercase;
     color: var(--white);
@@ -975,7 +975,7 @@
   }
   .deck-card-body {
     font-size: 13px;
-    color: rgba(224,220,218,0.7);
+    color:#FFFFFF;
     line-height: 1.6;
     font-weight: 300;
   }
@@ -1212,13 +1212,13 @@ function showKeyPrompt(errMsg) {
   overlay.innerHTML = '<div style="background:#2C2728;border:1px solid rgba(196,154,108,0.3);border-radius:4px;padding:36px;max-width:460px;width:100%">'
     + '<div style="font-family:Barlow Condensed,sans-serif;font-size:11px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:#C49A6C;margin-bottom:8px">Setup Required</div>'
     + '<div style="font-family:Barlow Condensed,sans-serif;font-size:22px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:#fff;margin-bottom:12px">Enter your Gemini API Key</div>'
-    + '<p style="font-size:13px;color:rgba(224,220,218,0.6);font-weight:300;line-height:1.7;margin-bottom:20px">EventIntel uses Google Gemini (free) to generate intelligence. Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" style="color:#C49A6C">aistudio.google.com/apikey</a> — no credit card needed.</p>'
+    + '<p style="font-size:13px;color:#FFFFFF;font-weight:300;line-height:1.7;margin-bottom:20px">EventIntel uses Google Gemini (free) to generate intelligence. Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" style="color:#C49A6C">aistudio.google.com/apikey</a> — no credit card needed.</p>'
     + msgHtml
     + '<input id="gemini-key-input" type="password" placeholder="AIzaSy…" autocomplete="off" style="width:100%;height:44px;padding:0 14px;background:#332D2E;border:1px solid rgba(224,220,218,0.15);border-radius:2px;font-family:Barlow,sans-serif;font-size:14px;color:#E0DCDA;outline:none;margin-bottom:12px">'
     + '<button id="gemini-key-save" style="width:100%;height:44px;background:#C49A6C;color:#221E1F;border:none;border-radius:2px;font-family:Barlow Condensed,sans-serif;font-size:14px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;cursor:pointer">Save &amp; Continue →</button>'
-    + '<p style="font-size:11px;color:rgba(224,220,218,0.3);margin-top:12px;text-align:center">Stored locally in your browser. Only sent to Google.</p>'
+    + '<p style="font-size:11px;color:#FFFFFF;margin-top:12px;text-align:center">Stored locally in your browser. Only sent to Google.</p>'
     + '<div id="key-change-wrap" style="margin-top:10px;text-align:center">'
-    + (getGeminiKey() ? '<button onclick="var o=document.getElementById(&quot;key-overlay&quot;);if(o)o.remove()" style="background:none;border:none;color:rgba(224,220,218,0.35);font-size:11px;cursor:pointer;font-family:Barlow Condensed,sans-serif;letter-spacing:0.06em">Cancel</button>' : '')
+    + (getGeminiKey() ? '<button onclick="var o=document.getElementById(&quot;key-overlay&quot;);if(o)o.remove()" style="background:none;border:none;color:#FFFFFF;font-size:11px;cursor:pointer;font-family:Barlow Condensed,sans-serif;letter-spacing:0.06em">Cancel</button>' : '')
     + '</div>'
     + '</div>';
   document.body.appendChild(overlay);
@@ -1852,22 +1852,22 @@ EVENT: ${o.event_name} (${o.event_date})
 INDUSTRY: ${d.industry}
 PITCH: ${o.services_pitch}
 
-Return ONLY this JSON (keep every string SHORT — max 20 words each):
+Return ONLY this JSON. Keep headlines, labels, stats and titles SHORT; write the "description" and "insight" fields as a few explanatory sentences as specified below:
 {
   "roe_headline": "6-8 word emotional headline",
-  "roe_insight": "One sentence on the emotional opportunity at this event.",
+  "roe_insight": "2-3 sentences (about 45-65 words) explaining the emotional opportunity at this specific event and why it matters for this brand.",
   "roe_stats": [
     { "num": "XX%", "label": "short stat label under 10 words" },
     { "num": "Xx", "label": "short stat label under 10 words" }
   ],
   "merchandise": [
-    { "title": "Product name", "description": "One sentence description." },
-    { "title": "Product name", "description": "One sentence description." },
-    { "title": "Product name", "description": "One sentence description." }
+    { "title": "Product name", "description": "2-3 sentences explaining the product, who it is for, and the connection it creates." },
+    { "title": "Product name", "description": "2-3 sentences explaining the product, who it is for, and the connection it creates." },
+    { "title": "Product name", "description": "2-3 sentences explaining the product, who it is for, and the connection it creates." }
   ],
-  "booth_concept": { "title": "Concept name", "description": "Two sentences max." },
-  "signage": { "title": "Concept name", "description": "One sentence.", "headline_1": "4-5 word headline", "headline_2": "4-5 word headline" },
-  "hero_activation": { "title": "Activation name", "description": "Two sentences max." },
+  "booth_concept": { "title": "Concept name", "description": "4-5 sentences (about 70-100 words) explaining the stand concept: the look and feel, the visitor experience, the key features or zones, and why it works for this audience at this event." },
+  "signage": { "title": "Concept name", "description": "3-4 sentences (about 50-75 words) explaining the creative direction, the visual language, and the message it communicates to attendees.", "headline_1": "4-5 word headline", "headline_2": "4-5 word headline" },
+  "hero_activation": { "title": "Activation name", "description": "4-5 sentences (about 70-100 words) explaining the activation: how attendees take part, the moment it creates, the emotional payoff, and the outcome for the brand." },
   "next_steps": [
     { "action": "Short action", "date": "Month YYYY", "owner": "Role" },
     { "action": "Short action", "date": "Month YYYY", "owner": "Role" },
@@ -1876,7 +1876,7 @@ Return ONLY this JSON (keep every string SHORT — max 20 words each):
   "outreach_window": "${o.outreach_window}"
 }`;
 
-    const deckRaw = await callGemini(DECK_SYS, DECK_PROMPT, 2000);
+    const deckRaw = await callGemini(DECK_SYS, DECK_PROMPT, 4000);
     clearInterval(stageTimer);
     const preview = document.getElementById('stream-preview');
     if (preview) preview.textContent = 'Rendering deck…';
@@ -1964,6 +1964,21 @@ function renderDeck(company, event, deck) {
     signage:  'https://images.unsplash.com/photo-1497366216548-37526070297c?w=900&q=80&auto=format&fit=crop',
     hero:     'https://images.unsplash.com/photo-1521737711867-e3b97375f902?w=900&q=80&auto=format&fit=crop',
   };
+
+  // ── Trade-stand photo matched to the booth concept idea ──────────────────────
+  // Every option is a real exhibition / trade-show environment, so the slide
+  // always shows a stand; the SVG booth is the ultimate fallback if a photo 404s.
+  function getBoothPhoto(concept) {
+    const t = (concept || '').toLowerCase();
+    // Energetic / immersive / launch / spectacle → event with stage lighting
+    if (t.match(/immersi|experien|energ|spectac|stage|light|live|theatr|launch|reveal|show\b|sensory|dynamic/))
+      return 'https://images.unsplash.com/photo-1511578314322-379afb476865?w=1200&q=80&auto=format&fit=crop';
+    // Connection / hospitality / lounge / networking → people meeting at a stand
+    if (t.match(/connect|conversation|network|meet|hospitalit|loung|welcom|relax|human|community|gather|social/))
+      return 'https://images.unsplash.com/photo-1475721027785-f74eccf877e2?w=1200&q=80&auto=format&fit=crop';
+    // Default → open exhibition hall / expo stand
+    return 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=1200&q=80&auto=format&fit=crop';
+  }
 
   // ── SVG fallbacks ─────────────────────────────────────────────────────────
 
@@ -2387,10 +2402,10 @@ function renderDeck(company, event, deck) {
       <div style="padding-bottom:${isLast?'0':'28px'};padding-left:10px;flex:1">
         ${s.date ? `<div style="font-family:var(--condensed);font-size:11px;font-weight:700;letter-spacing:0.1em;color:#C49A6C;margin-bottom:4px;text-transform:uppercase">${s.date}</div>` : ''}
         <div style="font-size:14px;color:var(--bon-jour);font-weight:400;line-height:1.55;margin-bottom:${s.owner?'4px':'0'}">${s.action}</div>
-        ${s.owner ? `<div style="font-family:var(--condensed);font-size:10px;letter-spacing:0.06em;color:rgba(224,220,218,0.35);text-transform:uppercase">${s.owner}</div>` : ''}
+        ${s.owner ? `<div style="font-family:var(--condensed);font-size:10px;letter-spacing:0.06em;color:#FFFFFF;text-transform:uppercase">${s.owner}</div>` : ''}
       </div>
       <div style="flex-shrink:0;padding-left:12px;padding-top:2px">
-        <span style="font-family:var(--condensed);font-size:26px;font-weight:700;color:rgba(196,154,108,0.12);line-height:1">${String(i+1).padStart(2,'0')}</span>
+        <span style="font-family:var(--condensed);font-size:26px;font-weight:700;color:rgba(196,154,108,0.6);line-height:1">${String(i+1).padStart(2,'0')}</span>
       </div>
     </div>`;
   }).join('');
@@ -2414,7 +2429,7 @@ function renderDeck(company, event, deck) {
   <div class="deck-slide mid" style="padding:0;min-height:100vh;display:grid;grid-template-columns:1fr 1fr;gap:0">
     <div style="padding:80px 8%;display:flex;flex-direction:column;justify-content:center">
       <div class="deck-eyebrow">Return on Emotion®</div>
-      <div class="deck-heading" style="font-size:clamp(28px,3.5vw,52px)">The Human<br>Opportunity</div>
+      <div class="deck-heading" style="font-size:clamp(34px,4.4vw,60px)">The Human<br>Opportunity</div>
       <div class="deck-rule"></div>
       <div class="deck-body" style="margin-bottom:40px"><p>${deck.roe_insight}</p></div>
       ${stat1.num ? `<div style="margin-bottom:28px;padding-bottom:28px;border-bottom:1px solid rgba(196,154,108,0.15)">
@@ -2450,7 +2465,7 @@ function renderDeck(company, event, deck) {
   <!-- Slide 04: Trade Stand — real event venue photo + SVG booth -->
   <div class="deck-slide" style="padding:0;min-height:100vh;display:grid;grid-template-rows:58% 42%;background:#0f0e0c">
     <div style="position:relative;overflow:hidden">
-      ${imgWithFallback(PHOTOS.booth1, svgBooth(), 'Trade show exhibition stand', 'filter:brightness(0.6) saturate(0.75)')}
+      ${imgWithFallback(getBoothPhoto((deck.booth_concept?.title||'') + ' ' + (deck.booth_concept?.description||'')), svgBooth(), 'Trade show exhibition stand', 'filter:brightness(0.6) saturate(0.75)')}
       <div style="position:absolute;inset:0;background:linear-gradient(to bottom,rgba(15,14,12,0.15) 0%,rgba(15,14,12,0.8) 100%);pointer-events:none"></div>
       <!-- Client logo overlay centred on stand image -->
       ${clientLogoSrc ? `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-60%);text-align:center">
@@ -2468,7 +2483,7 @@ function renderDeck(company, event, deck) {
       </div>
     </div>
     <div style="padding:36px 8%;display:flex;flex-direction:column;justify-content:center">
-      <div class="deck-heading" style="font-size:clamp(22px,2.8vw,40px);margin-bottom:14px">${deck.booth_concept?.title || 'Booth Concept'}</div>
+      <div class="deck-heading" style="font-size:clamp(30px,3.8vw,52px);margin-bottom:14px">${deck.booth_concept?.title || 'Booth Concept'}</div>
       <div class="deck-rule" style="margin-bottom:18px"></div>
       <div class="deck-body" style="font-size:clamp(13px,1.3vw,15px)"><p>${deck.booth_concept?.description || ''}</p></div>
     </div>
@@ -2488,7 +2503,7 @@ function renderDeck(company, event, deck) {
     </div>
     <div style="padding:80px 8%;display:flex;flex-direction:column;justify-content:center">
       <div class="deck-eyebrow">Signage & Creative Direction</div>
-      <div class="deck-heading" style="font-size:clamp(28px,3.5vw,52px)">${deck.signage?.title || 'Signage Concept'}</div>
+      <div class="deck-heading" style="font-size:clamp(34px,4.4vw,60px)">${deck.signage?.title || 'Signage Concept'}</div>
       <div class="deck-rule"></div>
       <div class="deck-body"><p>${deck.signage?.description || ''}</p></div>
     </div>
@@ -2503,7 +2518,7 @@ function renderDeck(company, event, deck) {
     </div>
     <div style="padding:80px 8%;display:flex;flex-direction:column;justify-content:center">
       <div class="deck-eyebrow">Hero Brand Activation</div>
-      <div class="deck-heading" style="font-size:clamp(28px,3.5vw,52px)">${deck.hero_activation?.title || 'Hero Activation'}</div>
+      <div class="deck-heading" style="font-size:clamp(34px,4.4vw,60px)">${deck.hero_activation?.title || 'Hero Activation'}</div>
       <div class="deck-rule"></div>
       <div class="deck-body"><p>${deck.hero_activation?.description || ''}</p></div>
     </div>
@@ -2514,7 +2529,7 @@ function renderDeck(company, event, deck) {
   <div class="deck-slide dark" style="min-height:100vh;display:grid;grid-template-columns:1fr 1fr;gap:0;padding:0">
     <div style="padding:80px 8%;display:flex;flex-direction:column;justify-content:center;border-right:1px solid rgba(196,154,108,0.1)">
       <div class="deck-eyebrow">Next Steps</div>
-      <div class="deck-heading" style="font-size:clamp(28px,3.5vw,52px);margin-bottom:16px">Let's Make<br>It Happen</div>
+      <div class="deck-heading" style="font-size:clamp(34px,4.4vw,60px);margin-bottom:16px">Let's Make<br>It Happen</div>
       <div class="deck-rule"></div>
       <div style="margin-top:8px">${timelineItems}</div>
     </div>
@@ -2524,7 +2539,7 @@ function renderDeck(company, event, deck) {
       <div class="deck-cta" style="display:inline-block;width:fit-content">Start the conversation →</div>
       <div style="margin-top:48px;padding-top:32px;border-top:1px solid rgba(196,154,108,0.1)">
         ${logoB64 ? `<img src="${logoB64}" style="height:24px;width:auto;opacity:0.45" alt="Brand Revolution">` : `<div style="font-family:var(--condensed);font-size:11px;font-weight:700;letter-spacing:0.18em;color:rgba(196,154,108,0.35)">BRAND REVOLUTION</div>`}
-        <div style="font-family:var(--condensed);font-size:10px;letter-spacing:0.1em;color:rgba(224,220,218,0.18);margin-top:8px;text-transform:uppercase">Return on Emotion® · ${new Date().getFullYear()}</div>
+        <div style="font-family:var(--condensed);font-size:10px;letter-spacing:0.1em;color:#FFFFFF;margin-top:8px;text-transform:uppercase">Return on Emotion® · ${new Date().getFullYear()}</div>
       </div>
     </div>
     <div class="deck-slide-num">07</div>
