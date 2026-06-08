@@ -798,25 +798,89 @@
     overflow-y: auto;
   }
   #deck-viewer.active { display: block; }
-  .deck-close {
+  /* ── Deck viewer toolbar ── */
+  .deck-toolbar {
     position: fixed;
-    top: 20px; right: 24px;
-    background: rgba(196,154,108,0.15);
-    border: 1px solid rgba(196,154,108,0.3);
-    color: var(--kraft);
+    top: 0; left: 0; right: 0;
+    height: 56px;
+    background: rgba(15,14,12,0.92);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(196,154,108,0.15);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    z-index: 10000;
+  }
+  .deck-toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .deck-toolbar-brand {
+    font-family: var(--condensed);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(196,154,108,0.5);
+  }
+  .deck-toolbar-sep {
+    width: 1px;
+    height: 18px;
+    background: rgba(196,154,108,0.2);
+  }
+  .deck-toolbar-title {
+    font-family: var(--condensed);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(224,220,218,0.5);
+  }
+  .btn-pptx {
+    height: 38px;
+    padding: 0 20px;
+    background: var(--kraft);
+    color: var(--raisin);
+    border: none;
+    border-radius: 2px;
+    font-family: var(--condensed);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: background 0.15s, transform 0.1s;
+    white-space: nowrap;
+  }
+  .btn-pptx:hover { background: #D4B48A; }
+  .btn-pptx:active { transform: scale(0.98); }
+  .btn-pptx:disabled { background: rgba(196,154,108,0.3); cursor: not-allowed; color: rgba(34,30,31,0.5); }
+  .btn-pptx svg { flex-shrink: 0; }
+  .btn-close-deck {
+    height: 34px;
+    padding: 0 14px;
+    background: transparent;
+    color: rgba(224,220,218,0.45);
+    border: 1px solid rgba(224,220,218,0.12);
+    border-radius: 2px;
     font-family: var(--condensed);
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    padding: 8px 16px;
-    border-radius: 2px;
     cursor: pointer;
-    z-index: 10000;
-    transition: background 0.15s;
+    transition: color 0.15s, border-color 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
-  .deck-close:hover { background: rgba(196,154,108,0.25); }
-  #deck-content { padding: 0; }
+  .btn-close-deck:hover { color: var(--bon-jour); border-color: rgba(224,220,218,0.25); }
+  #deck-content { padding: 0; padding-top: 56px; }
 
   /* Deck slide styles */
   .deck-slide {
@@ -1046,7 +1110,10 @@
       <span class="logo-intel">Intel</span>
     </div>
   </div>
+  <div style="display:flex;align-items:center;gap:14px">
   <div class="header-right">Event Intelligence Platform</div>
+  <button onclick="showKeyPrompt()" title="API Key Settings" style="background:none;border:none;color:rgba(196,154,108,0.4);cursor:pointer;font-size:15px;padding:2px;line-height:1;transition:color 0.15s" onmouseover="this.style.color='var(--kraft)'" onmouseout="this.style.color='rgba(196,154,108,0.4)'">⚙</button>
+</div>
 </header>
 <div class="kraft-bar"></div>
 
@@ -1086,6 +1153,85 @@
 </main>
 
 <script>
+// ── API endpoint ──────────────────────────────────────────────────────────────
+// Point this to your Cloudflare Worker URL once deployed.
+// e.g. 'https://eventintel.yourname.workers.dev'
+const API_URL = 'https://api.anthropic.com/v1/messages';
+
+
+// ── Gemini API ────────────────────────────────────────────────────────────────
+// Free tier — get a key at https://aistudio.google.com/apikey
+const GEMINI_MODEL = 'gemini-2.0-flash';
+
+function getGeminiKey() { return localStorage.getItem('gemini_api_key') || ''; }
+function setGeminiKey(k) { localStorage.setItem('gemini_api_key', k.trim()); }
+function geminiUrl(key) {
+  return 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL + ':generateContent?key=' + key;
+}
+async function callGemini(system, userContent, maxTokens) {
+  maxTokens = maxTokens || 4000;
+  const key = getGeminiKey();
+  if (!key) { showKeyPrompt(); throw new Error('No API key set.'); }
+  const res = await fetch(geminiUrl(key), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      system_instruction: { parts: [{ text: system }] },
+      contents: [{ role: 'user', parts: [{ text: userContent }] }],
+      generationConfig: { maxOutputTokens: maxTokens, temperature: 0.7 }
+    })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(function() { return {}; });
+    const msg = (err && err.error && err.error.message) ? err.error.message : ('API error ' + res.status);
+    if (res.status === 400 && msg.indexOf('API_KEY') >= 0) throw new Error('Invalid API key. Check your Gemini key in Settings.');
+    if (res.status === 429) throw new Error('Rate limit reached. Please wait a moment and try again.');
+    throw new Error(msg);
+  }
+  const data = await res.json();
+  return (data.candidates && data.candidates[0] && data.candidates[0].content &&
+          data.candidates[0].content.parts && data.candidates[0].content.parts[0].text) || '';
+}
+function showKeyPrompt(errMsg) {
+  var existing = document.getElementById('key-overlay');
+  if (existing) existing.remove();
+  var overlay = document.createElement('div');
+  overlay.id = 'key-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(34,30,31,0.97);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px';
+  var msgHtml = errMsg ? '<div style="background:rgba(226,75,74,0.12);border:1px solid rgba(226,75,74,0.3);border-radius:2px;padding:10px 12px;font-size:12px;color:#E24B4A;margin-bottom:16px;font-family:Barlow Condensed,sans-serif;letter-spacing:0.04em">' + errMsg + '</div>' : '';
+  overlay.innerHTML = '<div style="background:#2C2728;border:1px solid rgba(196,154,108,0.3);border-radius:4px;padding:36px;max-width:460px;width:100%">'
+    + '<div style="font-family:Barlow Condensed,sans-serif;font-size:11px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:#C49A6C;margin-bottom:8px">Setup Required</div>'
+    + '<div style="font-family:Barlow Condensed,sans-serif;font-size:22px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:#fff;margin-bottom:12px">Enter your Gemini API Key</div>'
+    + '<p style="font-size:13px;color:rgba(224,220,218,0.6);font-weight:300;line-height:1.7;margin-bottom:20px">EventIntel uses Google Gemini (free) to generate intelligence. Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" style="color:#C49A6C">aistudio.google.com/apikey</a> — no credit card needed.</p>'
+    + msgHtml
+    + '<input id="gemini-key-input" type="password" placeholder="AIzaSy…" autocomplete="off" style="width:100%;height:44px;padding:0 14px;background:#332D2E;border:1px solid rgba(224,220,218,0.15);border-radius:2px;font-family:Barlow,sans-serif;font-size:14px;color:#E0DCDA;outline:none;margin-bottom:12px">'
+    + '<button id="gemini-key-save" style="width:100%;height:44px;background:#C49A6C;color:#221E1F;border:none;border-radius:2px;font-family:Barlow Condensed,sans-serif;font-size:14px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;cursor:pointer">Save &amp; Continue →</button>'
+    + '<p style="font-size:11px;color:rgba(224,220,218,0.3);margin-top:12px;text-align:center">Stored locally in your browser. Only sent to Google.</p>'
+    + '<div id="key-change-wrap" style="margin-top:10px;text-align:center">'
+    + (getGeminiKey() ? '<button onclick="var o=document.getElementById(&quot;key-overlay&quot;);if(o)o.remove()" style="background:none;border:none;color:rgba(224,220,218,0.35);font-size:11px;cursor:pointer;font-family:Barlow Condensed,sans-serif;letter-spacing:0.06em">Cancel</button>' : '')
+    + '</div>'
+    + '</div>';
+  document.body.appendChild(overlay);
+  document.getElementById('gemini-key-save').onclick = function() {
+    var val = document.getElementById('gemini-key-input').value.trim();
+    if (!val) return;
+    setGeminiKey(val);
+    overlay.remove();
+  };
+  document.getElementById('gemini-key-input').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') document.getElementById('gemini-key-save').click();
+  });
+  setTimeout(function() { var el = document.getElementById('gemini-key-input'); if (el) el.focus(); }, 100);
+}
+(function() {
+  var isArtifact = window.location.href.indexOf('claude.ai') >= 0 ||
+                   window.location.href.indexOf('artifacts') >= 0 ||
+                   window.location.protocol === 'blob:';
+  if (!isArtifact && !getGeminiKey()) {
+    document.addEventListener('DOMContentLoaded', function() { showKeyPrompt(); });
+  }
+})();
+
 const STAGES = [
   'Scanning public content…',
   'Extracting event mentions…',
@@ -1095,18 +1241,23 @@ const STAGES = [
 ];
 
 function setLoading(on, stage = 0) {
-  document.getElementById('loading').style.display = on ? 'block' : 'none';
-  if (on) document.getElementById('loading-label').textContent = STAGES[stage] || STAGES[0];
-  document.getElementById('analyse-btn').disabled = on;
+  const loadEl = document.getElementById('loading');
+  const labelEl = document.getElementById('loading-label');
+  const btnEl = document.getElementById('analyse-btn');
+  if (loadEl) loadEl.style.display = on ? 'block' : 'none';
+  if (on && labelEl) labelEl.textContent = STAGES[stage] || STAGES[0];
+  if (btnEl) btnEl.disabled = on;
 }
 
 function showError(msg) {
   const el = document.getElementById('error-state');
+  if (!el) return;
   el.style.display = 'block';
   el.textContent = '⚠  ' + msg;
 }
 function hideError() {
-  document.getElementById('error-state').style.display = 'none';
+  const el = document.getElementById('error-state');
+  if (el) el.style.display = 'none';
 }
 
 async function runAnalysis() {
@@ -1125,45 +1276,29 @@ async function runAnalysis() {
     document.getElementById('loading-label').textContent = STAGES[stageIdx];
   }, 2200);
 
+  const SYS = `You are an expert B2B marketing intelligence analyst. Return ONLY valid JSON — no preamble, no markdown fences, no explanation.`;
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 4000,
-        system: `You are an expert B2B marketing intelligence analyst. Your job is to analyse a company's likely event participation history and future plans based on their public profile, and generate a structured JSON response.
-
-You must ALWAYS return ONLY valid JSON — no preamble, no markdown fences, no explanation. The JSON must exactly match the schema provided.
-
-Use your knowledge of the company, their industry, typical industry events, and marketing patterns to create realistic, specific, and genuinely useful intelligence. Be specific about real events that exist in their industry. Do not invent events — use real, known trade shows, conferences, and industry events.`,
-        messages: [{ role: 'user', content: buildPrompt(name, url) }]
-      })
-    });
-
+    const raw = await callGemini(SYS, buildPrompt(name, url), 4000);
     clearInterval(stageTimer);
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err?.error?.message || `API error ${res.status}`);
-    }
-
-    const data = await res.json();
-    const raw = data.content?.find(b => b.type === 'text')?.text || '';
-    const clean = raw.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-
+    let clean = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+    const fb = clean.indexOf('{'), lb = clean.lastIndexOf('}');
+    if (fb !== -1 && lb > fb) clean = clean.slice(fb, lb + 1);
     let parsed;
     try { parsed = JSON.parse(clean); }
     catch (e) { throw new Error('Could not parse response. Please try again.'); }
-
     setLoading(false);
     window._lastAnalysis = parsed;
     window._lastUrl = url;
+    try {
+      localStorage.setItem('ei_last_analysis', JSON.stringify(parsed));
+      localStorage.setItem('ei_last_url', url);
+      localStorage.setItem('ei_last_name', name);
+    } catch(e) {}
     renderResults(parsed, name, url);
-
   } catch (e) {
     clearInterval(stageTimer);
     setLoading(false);
-    showError(e.message || 'Something went wrong. Please try again.');
+    if (e.message !== 'No API key set.') showError(e.message || 'Something went wrong. Please try again.');
   }
 }
 
@@ -1346,25 +1481,52 @@ function renderResults(d, rawName, rawUrl) {
 
 document.addEventListener('keydown', e => { if (e.key === 'Enter') runAnalysis(); });
 
+// ── Restore last analysis on load ─────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', function restoreLastSession() {
+  try {
+    const saved = localStorage.getItem('ei_last_analysis');
+    const savedUrl = localStorage.getItem('ei_last_url') || '';
+    const savedName = localStorage.getItem('ei_last_name') || '';
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      window._lastAnalysis = parsed;
+      window._lastUrl = savedUrl;
+      renderResults(parsed, savedName, savedUrl);
+      const nameEl = document.getElementById('company-name');
+      const urlEl = document.getElementById('company-url');
+      if (nameEl) nameEl.value = savedName;
+      if (urlEl) urlEl.value = savedUrl;
+    }
+  } catch(e) { console.warn('Session restore failed:', e); }
+});
+
 // ── HubSpot integration ──────────────────────────────────────────────────────
 
 async function callClaude(systemPrompt, userPrompt) {
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 4000,
-      system: systemPrompt,
-      mcp_servers: [{ type: 'url', url: 'https://mcp.hubspot.com/anthropic', name: 'hubspot' }],
-      messages: [{ role: 'user', content: userPrompt }]
-    })
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err?.error?.message || `API error ${res.status}`);
+  const isArtifact = window.location.href.indexOf('claude.ai') >= 0 ||
+                     window.location.href.indexOf('artifacts') >= 0 ||
+                     window.location.protocol === 'blob:';
+  if (isArtifact) {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 4000,
+        system: systemPrompt,
+        mcp_servers: [{ type: 'url', url: 'https://mcp.hubspot.com/anthropic', name: 'hubspot' }],
+        messages: [{ role: 'user', content: userPrompt }]
+      })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err?.error?.message || `API error ${res.status}`);
+    }
+    return res.json();
+  } else {
+    const text = await callGemini(systemPrompt, userPrompt, 4000);
+    return { content: [{ type: 'text', text }] };
   }
-  return res.json();
 }
 
 function hsLog(msg, status = 'ok') {
@@ -1620,112 +1782,47 @@ async function buildDeckFresh(idx) {
   }, 2500);
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 8000,
-        stream: true,
-        system: `You are Brand Revolution's senior brand strategist. You create bespoke brand activation proposals for clients attending trade events. Brand Revolution's core philosophy is Return on Emotion® (ROE) — the belief that meaningful human connection drives business results more than any other metric. Every proposal must feel strategically specific, emotionally resonant, and creatively ambitious.
-
-You MUST respond with ONLY a raw JSON object. Do not include any text before or after the JSON. Do not use markdown code fences. Start your response with { and end with }.`,
-        messages: [{
-          role: 'user',
-          content: `Create a brand activation deck for this client and event.
-
+    const DECK_SYS = `You are Brand Revolution's senior brand strategist. Return ONLY a raw JSON object — no markdown, no explanation, start with { end with }.`;
+    const DECK_PROMPT = `Brand activation deck for:
 CLIENT: ${d.company}
+EVENT: ${o.event_name} (${o.event_date})
 INDUSTRY: ${d.industry}
-EVENT: ${o.event_name}
-EVENT DATE: ${o.event_date}
-LOCATION: ${o.outreach_window}
-INTELLIGENCE: ${d.summary}
-PITCH ANGLE: ${o.services_pitch}
-RATIONALE: ${o.rationale}
+PITCH: ${o.services_pitch}
 
-Return this exact JSON structure:
+Return ONLY this JSON (keep every string SHORT — max 20 words each):
 {
-  "roe_headline": "A powerful 8–12 word emotional headline for this activation (e.g. 'Where Human Connection Becomes Your Competitive Advantage')",
-  "roe_insight": "2–3 sentences on the emotional opportunity at this specific event — what attendees FEEL, what they need, what they remember",
+  "roe_headline": "6-8 word emotional headline",
+  "roe_insight": "One sentence on the emotional opportunity at this event.",
   "roe_stats": [
-    { "num": "e.g. 74%", "label": "e.g. of buyers choose brands they feel emotionally connected to" },
-    { "num": "e.g. 3x", "label": "e.g. higher recall for experiential vs digital marketing" }
+    { "num": "XX%", "label": "short stat label under 10 words" },
+    { "num": "Xx", "label": "short stat label under 10 words" }
   ],
   "merchandise": [
-    { "title": "Product concept name", "description": "2–3 sentences: what it is, why it works for this audience, how it creates connection", "image_keywords": "3-4 words for a lifestyle photo" },
-    { "title": "Product concept name", "description": "...", "image_keywords": "e.g. 'custom notebook professional conference'" },
-    { "title": "Product concept name", "description": "...", "image_keywords": "e.g. 'branded tote bag city street'" }
+    { "title": "Product name", "description": "One sentence description." },
+    { "title": "Product name", "description": "One sentence description." },
+    { "title": "Product name", "description": "One sentence description." }
   ],
-  "booth_concept": {
-    "title": "Booth/stand concept name",
-    "description": "3–4 sentences describing the space, the visitor journey, key moments of engagement, and the emotional takeaway",
-    "image_keywords": "4-5 words for an exhibition stand photo",
-    "image_keywords_2": "4-5 words for a second angle"
-  },
-  "signage": {
-    "title": "Signage & wayfinding concept name",
-    "description": "2–3 sentences on tone, visual language, key messages, and how signage builds narrative through the space",
-    "headline_1": "Bold 4–6 word signage headline, e.g. 'Feel The Difference'",
-    "headline_2": "Second bold 4–6 word line, e.g. 'Make It Memorable'"
-  },
-  "hero_activation": {
-    "title": "Hero activation name",
-    "description": "4–5 sentences describing the standout experience — what happens, who participates, what they feel, what they share, why it's memorable"
-  },
+  "booth_concept": { "title": "Concept name", "description": "Two sentences max." },
+  "signage": { "title": "Concept name", "description": "One sentence.", "headline_1": "4-5 word headline", "headline_2": "4-5 word headline" },
+  "hero_activation": { "title": "Activation name", "description": "Two sentences max." },
   "next_steps": [
-    { "action": "Specific action description", "date": "e.g. Week of 2 June 2025", "owner": "e.g. Account Manager" },
-    { "action": "Specific action description", "date": "e.g. By 16 June 2025", "owner": "e.g. Creative Team" },
-    { "action": "Specific action description", "date": "e.g. By 30 June 2025", "owner": "e.g. Production" }
+    { "action": "Short action", "date": "Month YYYY", "owner": "Role" },
+    { "action": "Short action", "date": "Month YYYY", "owner": "Role" },
+    { "action": "Short action", "date": "Month YYYY", "owner": "Role" }
   ],
   "outreach_window": "${o.outreach_window}"
-}`
-        }]
-      })
-    });
+}`;
 
+    const deckRaw = await callGemini(DECK_SYS, DECK_PROMPT, 2000);
     clearInterval(stageTimer);
-    if (!res.ok) throw new Error(`API error ${res.status}`);
-
-    // ── Read the SSE stream ─────────────────────────────────────────────────
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let accumulated = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split('\n');
-
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        const data = line.slice(6).trim();
-        if (data === '[DONE]') continue;
-        try {
-          const evt = JSON.parse(data);
-          if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
-            accumulated += evt.delta.text;
-            // Update preview with last meaningful snippet
-            const preview = document.getElementById('stream-preview');
-            if (preview) {
-              const snippet = accumulated.replace(/[{}"[\]]/g, ' ').replace(/\s+/g, ' ').trim().slice(-120);
-              preview.textContent = snippet;
-            }
-          }
-        } catch(e) { /* skip non-JSON lines */ }
-      }
-    }
-
-    // ── Parse the complete JSON ─────────────────────────────────────────────
-    let clean = accumulated.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
-    const firstBrace = clean.indexOf('{');
-    const lastBrace = clean.lastIndexOf('}');
+    const preview = document.getElementById('stream-preview');
+    if (preview) preview.textContent = 'Rendering deck…';
+    let clean = deckRaw.replace(/\`\`\`json\s*/gi, '').replace(/\`\`\`\s*/g, '').trim();
+    const firstBrace = clean.indexOf('{'), lastBrace = clean.lastIndexOf('}');
     if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
       clean = clean.slice(firstBrace, lastBrace + 1);
     }
-
-    let deck;
+        let deck;
     try { deck = JSON.parse(clean); }
     catch(e) {
       console.error('Deck parse error. Raw:', accumulated);
@@ -1741,8 +1838,8 @@ Return this exact JSON structure:
     const shareUrl = `${window.location.href.split('?')[0]}?deck=${deckId}`;
 
     try {
-      await window.storage.set(`deck:${deckId}`, encoded);      // shareable link
-      await window.storage.set(cacheKey, encoded);               // cache for instant reload
+      await window.storage.set(`deck:${deckId}`, encoded);
+      await window.storage.set(cacheKey, encoded);
     } catch(e) { console.warn('Storage unavailable:', e); }
 
     if (btn) { btn.classList.remove('generating'); btn.textContent = '✓ Deck Ready'; btn.style.color = 'var(--aqua)'; btn.style.borderColor = 'rgba(121,192,153,0.4)'; }
@@ -1775,103 +1872,364 @@ function closeDeck() {
   document.body.style.overflow = '';
 }
 
-// Render deck HTML from JSON data — fully self-contained SVG visuals
+// Render deck HTML — real photos with SVG fallbacks
+// Photos load on GitHub Pages/Chrome ext; SVGs show in Claude.ai sandbox
 function renderDeck(company, event, deck) {
   const logoB64 = document.querySelector('.logo-img')?.src || '';
   const clientName = company.company || '';
   const clientInitials = clientName.split(' ').slice(0,3).map(w=>w[0]||'').join('').toUpperCase().slice(0,3);
 
-  // ── SVG Visual Helpers ───────────────────────────────────────────────────
+  // Store current deck data for PPTX export
+  window._currentDeck = { company, event, deck };
 
-  // Merchandise scenes — three distinct product lifestyle SVGs
-  function merchSVG(index, title) {
-    const scenes = [
-      // 01 — Premium apparel/bag at an event
-      `<svg viewBox="0 0 600 220" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:200px;display:block">
-        <defs>
-          <linearGradient id="ms1bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1a1618"/><stop offset="100%" stop-color="#2C2728"/></linearGradient>
-          <linearGradient id="ms1fade" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="transparent"/><stop offset="75%" stop-color="rgba(15,14,12,0.85)"/></linearGradient>
-        </defs>
-        <rect width="600" height="220" fill="url(#ms1bg)"/>
-        <ellipse cx="100" cy="200" rx="70" ry="40" fill="rgba(255,255,255,0.03)"/>
-        <ellipse cx="500" cy="210" rx="60" ry="35" fill="rgba(255,255,255,0.03)"/>
-        <circle cx="80" cy="50" r="3" fill="rgba(196,154,108,0.25)"/>
-        <circle cx="520" cy="40" r="2" fill="rgba(196,154,108,0.2)"/>
-        <circle cx="560" cy="120" r="4" fill="rgba(196,154,108,0.12)"/>
-        <g transform="translate(210,10)">
-          <path d="M60,60 Q80,18 100,18 Q120,18 140,60" fill="none" stroke="#9A7245" stroke-width="9" stroke-linecap="round"/>
-          <rect x="20" y="58" width="160" height="148" rx="8" fill="#C49A6C"/>
-          <rect x="28" y="66" width="144" height="132" rx="6" fill="#B8895A"/>
-          <rect x="44" y="100" width="92" height="42" rx="3" fill="rgba(34,30,31,0.3)"/>
-          <text x="90" y="126" font-family="'Barlow Condensed',sans-serif" font-size="14" font-weight="700" letter-spacing="1.5" fill="rgba(255,255,255,0.9)" text-anchor="middle">${clientInitials}</text>
-          <rect x="36" y="76" width="128" height="112" rx="4" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="1" stroke-dasharray="4,4"/>
-        </g>
-        <rect width="600" height="220" fill="url(#ms1fade)"/>
-      </svg>`,
+  // Client logo via Clearbit
+  const clientDomain = (() => {
+    try { return new URL(window._lastUrl||'').hostname.replace(/^www\./,''); } catch(e){ return ''; }
+  })();
+  const clientLogoSrc = clientDomain ? `https://logo.clearbit.com/${clientDomain}` : '';
 
-      // 02 — Branded notebook + pen at conference desk
-      `<svg viewBox="0 0 600 220" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:200px;display:block">
-        <defs>
-          <linearGradient id="ms2bg" x1="1" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#221E1F"/><stop offset="100%" stop-color="#1a1618"/></linearGradient>
-          <linearGradient id="ms2fade" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="transparent"/><stop offset="70%" stop-color="rgba(15,14,12,0.8)"/></linearGradient>
-          <linearGradient id="notebookCover" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#C49A6C"/><stop offset="100%" stop-color="#A07848"/></linearGradient>
-        </defs>
-        <rect width="600" height="220" fill="url(#ms2bg)"/>
-        <ellipse cx="300" cy="195" rx="260" ry="30" fill="rgba(255,255,255,0.03)"/>
-        <g transform="translate(185,15)">
-          <rect x="0" y="0" width="10" height="190" rx="2" fill="#8A6235"/>
-          <rect x="8" y="0" width="156" height="190" rx="3" fill="url(#notebookCover)"/>
-          <rect x="14" y="8" width="144" height="174" rx="2" fill="#B8895A"/>
-          <rect x="0" y="0" width="10" height="190" rx="2" fill="#7A5528"/>
-          <rect x="48" y="68" width="78" height="58" rx="3" fill="rgba(34,30,31,0.28)"/>
-          <text x="87" y="102" font-family="'Barlow Condensed',sans-serif" font-size="15" font-weight="700" letter-spacing="1.5" fill="rgba(255,255,255,0.88)" text-anchor="middle">${clientInitials}</text>
-          <rect x="14" y="148" width="144" height="6" rx="3" fill="rgba(34,30,31,0.25)"/>
-          <line x1="26" y1="162" x2="152" y2="162" stroke="rgba(34,30,31,0.25)" stroke-width="1"/>
-          <line x1="26" y1="172" x2="130" y2="172" stroke="rgba(34,30,31,0.2)" stroke-width="1"/>
-        </g>
-        <g transform="translate(362,30) rotate(-12)">
-          <rect x="0" y="0" width="11" height="0" rx="0" fill="none"/>
-          <rect x="1" y="0" width="9" height="28" rx="5" fill="#C49A6C"/>
-          <rect x="0" y="28" width="11" height="130" rx="5" fill="#E0DCDA"/>
-          <polygon points="0,158 11,158 5.5,175" fill="#332D2E"/>
-        </g>
-        <rect width="600" height="220" fill="url(#ms2fade)"/>
-      </svg>`,
+  // Curated Unsplash photo IDs — direct CDN (not redirect), works outside Claude.ai
+  // Human connection / event / lifestyle photos
+  const PHOTOS = {
+    people1:  'https://images.unsplash.com/photo-1582213782179-e0d53f98f2ca?w=900&q=80&auto=format&fit=crop',
+    people2:  'https://images.unsplash.com/photo-1515187029135-18ee286d815b?w=600&q=80&auto=format&fit=crop',
+    people3:  'https://images.unsplash.com/photo-1529156069898-49953e39b3ac?w=600&q=80&auto=format&fit=crop',
+    event1:   'https://images.unsplash.com/photo-1511578314322-379afb476865?w=900&q=80&auto=format&fit=crop',
+    bag:      'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?w=600&q=80&auto=format&fit=crop',
+    notebook: 'https://images.unsplash.com/photo-1531346878377-a5be20888e57?w=600&q=80&auto=format&fit=crop',
+    bottle:   'https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=600&q=80&auto=format&fit=crop',
+    booth1:   'https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=1200&q=80&auto=format&fit=crop',
+    booth2:   'https://images.unsplash.com/photo-1475721027785-f74eccf877e2?w=900&q=80&auto=format&fit=crop',
+    signage:  'https://images.unsplash.com/photo-1497366216548-37526070297c?w=900&q=80&auto=format&fit=crop',
+    hero:     'https://images.unsplash.com/photo-1521737711867-e3b97375f902?w=900&q=80&auto=format&fit=crop',
+  };
 
-      // 03 — Premium insulated bottle / tech accessory
-      `<svg viewBox="0 0 600 220" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:200px;display:block">
-        <defs>
-          <linearGradient id="ms3bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#2C2728"/><stop offset="100%" stop-color="#0f0e0c"/></linearGradient>
-          <linearGradient id="ms3fade" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="transparent"/><stop offset="65%" stop-color="rgba(15,14,12,0.85)"/></linearGradient>
-          <linearGradient id="bottleBody" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#8A6235"/><stop offset="40%" stop-color="#C49A6C"/><stop offset="70%" stop-color="#A07848"/><stop offset="100%" stop-color="#7A5528"/></linearGradient>
-        </defs>
-        <rect width="600" height="220" fill="url(#ms3bg)"/>
-        <circle cx="450" cy="80" r="100" fill="rgba(196,154,108,0.04)"/>
-        <circle cx="150" cy="170" r="70" fill="rgba(196,154,108,0.03)"/>
-        <g transform="translate(248,5)">
-          <rect x="30" y="0" width="44" height="18" rx="5" fill="#9A7245"/>
-          <rect x="28" y="14" width="48" height="8" rx="2" fill="#7A5528"/>
-          <rect x="18" y="22" width="68" height="190" rx="12" fill="url(#bottleBody)"/>
-          <rect x="22" y="26" width="60" height="182" rx="10" fill="rgba(255,255,255,0.05)"/>
-          <rect x="18" y="100" width="68" height="44" rx="0" fill="rgba(34,30,31,0.32)"/>
-          <text x="52" y="128" font-family="'Barlow Condensed',sans-serif" font-size="13" font-weight="700" letter-spacing="2" fill="rgba(255,255,255,0.9)" text-anchor="middle">${clientInitials}</text>
-          <rect x="28" y="32" width="14" height="168" rx="7" fill="rgba(255,255,255,0.07)"/>
-          <rect x="18" y="202" width="68" height="10" rx="5" fill="#7A5528"/>
-        </g>
-        <rect width="600" height="220" fill="url(#ms3fade)"/>
-      </svg>`
-    ];
-    return scenes[index % 3];
+  // ── SVG fallbacks ─────────────────────────────────────────────────────────
+
+  function svgPeople1() {
+    return `<svg viewBox="0 0 500 320" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block">
+      <defs><linearGradient id="p1bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#221E1F"/><stop offset="100%" stop-color="#1a1618"/></linearGradient></defs>
+      <rect width="500" height="320" fill="url(#p1bg)"/>
+      <!-- Two people facing each other, handshake -->
+      <circle cx="155" cy="115" r="38" fill="rgba(196,154,108,0.6)"/>
+      <ellipse cx="155" cy="235" rx="52" ry="72" fill="rgba(196,154,108,0.45)"/>
+      <circle cx="345" cy="115" r="38" fill="rgba(224,220,218,0.45)"/>
+      <ellipse cx="345" cy="235" rx="52" ry="72" fill="rgba(224,220,218,0.3)"/>
+      <!-- Handshake / connection -->
+      <path d="M188,190 Q250,160 312,190" fill="none" stroke="#C49A6C" stroke-width="4" stroke-linecap="round" opacity="0.7"/>
+      <circle cx="250" cy="168" r="12" fill="rgba(196,154,108,0.5)"/>
+      <circle cx="250" cy="168" r="26" fill="none" stroke="#C49A6C" stroke-width="1.5" opacity="0.35"/>
+      <circle cx="250" cy="168" r="44" fill="none" stroke="#C49A6C" stroke-width="1" opacity="0.15"/>
+      <!-- Background people -->
+      <circle cx="60" cy="140" r="20" fill="rgba(255,255,255,0.06)"/>
+      <ellipse cx="60" cy="220" rx="28" ry="50" fill="rgba(255,255,255,0.05)"/>
+      <circle cx="440" cy="130" r="22" fill="rgba(255,255,255,0.06)"/>
+      <ellipse cx="440" cy="215" rx="30" ry="55" fill="rgba(255,255,255,0.05)"/>
+      <!-- Atmosphere -->
+      <circle cx="80" cy="50" r="3" fill="rgba(196,154,108,0.3)"/>
+      <circle cx="420" cy="60" r="2" fill="rgba(196,154,108,0.2)"/>
+      <circle cx="50" cy="270" r="4" fill="rgba(196,154,108,0.18)"/>
+      <circle cx="450" cy="285" r="3" fill="rgba(196,154,108,0.2)"/>
+    </svg>`;
   }
 
-  // Build merchandise cards
+  function svgPeople2() {
+    return `<svg viewBox="0 0 260 175" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block">
+      <rect width="260" height="175" fill="#1a1618"/>
+      <!-- Conference crowd energy wave -->
+      <rect x="0" y="78" width="260" height="32" fill="rgba(196,154,108,0.06)"/>
+      <path d="M0,68 Q32,44 65,60 Q98,76 130,56 Q162,36 195,52 Q220,64 260,50" fill="none" stroke="#C49A6C" stroke-width="2.5" opacity="0.6" stroke-linecap="round"/>
+      <path d="M0,88 Q40,64 80,78 Q120,92 160,70 Q200,50 260,68" fill="none" stroke="rgba(196,154,108,0.3)" stroke-width="1.5"/>
+      <!-- Heads -->
+      <circle cx="44" cy="145" r="22" fill="rgba(196,154,108,0.14)"/>
+      <circle cx="88" cy="140" r="18" fill="rgba(196,154,108,0.18)"/>
+      <circle cx="130" cy="143" r="24" fill="rgba(196,154,108,0.11)"/>
+      <circle cx="175" cy="138" r="20" fill="rgba(196,154,108,0.16)"/>
+      <circle cx="220" cy="145" r="16" fill="rgba(196,154,108,0.13)"/>
+      <circle cx="55" cy="24" r="3" fill="rgba(196,154,108,0.3)"/>
+      <circle cx="200" cy="18" r="2" fill="rgba(196,154,108,0.2)"/>
+    </svg>`;
+  }
+
+  function svgPeople3() {
+    return `<svg viewBox="0 0 260 175" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block">
+      <rect width="260" height="175" fill="#2C2728"/>
+      <!-- Three people celebrating / connecting -->
+      <circle cx="80" cy="80" r="30" fill="rgba(196,154,108,0.5)"/>
+      <ellipse cx="80" cy="160" rx="40" ry="55" fill="rgba(196,154,108,0.35)"/>
+      <circle cx="180" cy="75" r="30" fill="rgba(224,220,218,0.4)"/>
+      <ellipse cx="180" cy="160" rx="40" ry="55" fill="rgba(224,220,218,0.28)"/>
+      <circle cx="130" cy="65" r="25" fill="rgba(196,154,108,0.35)"/>
+      <ellipse cx="130" cy="145" rx="34" ry="48" fill="rgba(196,154,108,0.25)"/>
+      <!-- Arms raised / connection arcs -->
+      <path d="M108,95 Q130,75 152,95" fill="none" stroke="rgba(196,154,108,0.5)" stroke-width="5" stroke-linecap="round"/>
+      <circle cx="45" cy="42" r="3" fill="rgba(196,154,108,0.28)"/>
+      <circle cx="215" cy="145" r="4" fill="rgba(196,154,108,0.18)"/>
+    </svg>`;
+  }
+
+  function svgBag() {
+    return `<svg viewBox="0 0 600 220" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block">
+      <defs>
+        <linearGradient id="bg1a" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1a1618"/><stop offset="100%" stop-color="#2C2728"/></linearGradient>
+        <linearGradient id="bg1fade" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="transparent"/><stop offset="75%" stop-color="rgba(15,14,12,0.85)"/></linearGradient>
+        <linearGradient id="bagGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#C49A6C"/><stop offset="100%" stop-color="#9A7245"/></linearGradient>
+      </defs>
+      <rect width="600" height="220" fill="url(#bg1a)"/>
+      <!-- Person holding bag silhouette -->
+      <ellipse cx="100" cy="195" rx="55" ry="28" fill="rgba(255,255,255,0.04)"/>
+      <circle cx="100" cy="148" r="30" fill="rgba(255,255,255,0.06)"/>
+      <ellipse cx="100" cy="195" rx="42" ry="48" fill="rgba(255,255,255,0.05)"/>
+      <!-- Premium tote bag -->
+      <g transform="translate(205,15)">
+        <path d="M60,55 Q78,14 100,14 Q122,14 140,55" fill="none" stroke="#9A7245" stroke-width="9" stroke-linecap="round"/>
+        <rect x="20" y="53" width="160" height="150" rx="8" fill="url(#bagGrad)"/>
+        <rect x="28" y="61" width="144" height="134" rx="6" fill="#B8895A"/>
+        <!-- Logo area -->
+        <rect x="50" y="98" width="100" height="50" rx="4" fill="rgba(34,30,31,0.32)"/>
+        <text x="100" y="129" font-family="'Barlow Condensed',sans-serif" font-size="15" font-weight="700" letter-spacing="2" fill="rgba(255,255,255,0.92)" text-anchor="middle">${clientInitials}</text>
+        <!-- Stitching -->
+        <rect x="34" y="68" width="132" height="118" rx="4" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="1" stroke-dasharray="5,4"/>
+        <!-- Handle shadow -->
+        <ellipse cx="100" cy="57" rx="45" ry="8" fill="rgba(0,0,0,0.2)"/>
+      </g>
+      <!-- Second bag, partially visible -->
+      <g transform="translate(400,50) scale(0.7)" opacity="0.4">
+        <rect x="20" y="53" width="160" height="150" rx="8" fill="#A07848"/>
+        <path d="M60,55 Q78,14 100,14 Q122,14 140,55" fill="none" stroke="#7A5528" stroke-width="9" stroke-linecap="round"/>
+      </g>
+      <rect width="600" height="220" fill="url(#bg1fade)"/>
+    </svg>`;
+  }
+
+  function svgNotebook() {
+    return `<svg viewBox="0 0 600 220" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block">
+      <defs>
+        <linearGradient id="nb_bg" x1="1" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#221E1F"/><stop offset="100%" stop-color="#1a1618"/></linearGradient>
+        <linearGradient id="nb_fade" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="transparent"/><stop offset="70%" stop-color="rgba(15,14,12,0.8)"/></linearGradient>
+        <linearGradient id="nb_cover" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#C49A6C"/><stop offset="100%" stop-color="#A07848"/></linearGradient>
+      </defs>
+      <rect width="600" height="220" fill="url(#nb_bg)"/>
+      <!-- Desk surface -->
+      <ellipse cx="300" cy="205" rx="280" ry="22" fill="rgba(255,255,255,0.03)"/>
+      <!-- Notebook -->
+      <g transform="translate(185,12)">
+        <rect x="0" y="0" width="11" height="196" rx="2" fill="#7A5528"/>
+        <rect x="9" y="0" width="156" height="196" rx="3" fill="url(#nb_cover)"/>
+        <rect x="15" y="8" width="144" height="180" rx="2" fill="#B8895A"/>
+        <!-- Logo on cover -->
+        <rect x="48" y="68" width="84" height="62" rx="4" fill="rgba(34,30,31,0.3)"/>
+        <text x="90" y="104" font-family="'Barlow Condensed',sans-serif" font-size="16" font-weight="700" letter-spacing="2" fill="rgba(255,255,255,0.88)" text-anchor="middle">${clientInitials}</text>
+        <!-- Elastic band -->
+        <rect x="9" y="100" width="156" height="7" rx="3" fill="rgba(34,30,31,0.3)"/>
+        <!-- Page lines -->
+        <line x1="24" y1="152" x2="156" y2="152" stroke="rgba(34,30,31,0.3)" stroke-width="1"/>
+        <line x1="24" y1="163" x2="156" y2="163" stroke="rgba(34,30,31,0.28)" stroke-width="1"/>
+        <line x1="24" y1="174" x2="130" y2="174" stroke="rgba(34,30,31,0.22)" stroke-width="1"/>
+      </g>
+      <!-- Pen -->
+      <g transform="translate(356,28) rotate(-14)">
+        <rect x="0" y="0" width="10" height="25" rx="5" fill="#C49A6C"/>
+        <rect x="0" y="25" width="10" height="130" rx="5" fill="#E0DCDA"/>
+        <polygon points="0,155 10,155 5,173" fill="#332D2E"/>
+      </g>
+      <!-- Coffee cup -->
+      <ellipse cx="490" cy="192" rx="28" ry="10" fill="rgba(196,154,108,0.12)"/>
+      <rect x="464" y="148" width="52" height="44" rx="6" fill="rgba(196,154,108,0.07)" stroke="rgba(196,154,108,0.18)" stroke-width="1"/>
+      <rect width="600" height="220" fill="url(#nb_fade)"/>
+    </svg>`;
+  }
+
+  function svgBottle() {
+    return `<svg viewBox="0 0 600 220" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block">
+      <defs>
+        <linearGradient id="bot_bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#2C2728"/><stop offset="100%" stop-color="#0f0e0c"/></linearGradient>
+        <linearGradient id="bot_fade" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="transparent"/><stop offset="65%" stop-color="rgba(15,14,12,0.85)"/></linearGradient>
+        <linearGradient id="bot_body" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#8A6235"/><stop offset="40%" stop-color="#C49A6C"/><stop offset="70%" stop-color="#A07848"/><stop offset="100%" stop-color="#7A5528"/></linearGradient>
+      </defs>
+      <rect width="600" height="220" fill="url(#bot_bg)"/>
+      <!-- Ambient circles -->
+      <circle cx="460" cy="80" r="100" fill="rgba(196,154,108,0.04)"/>
+      <!-- Main bottle -->
+      <g transform="translate(230,2)">
+        <rect x="32" y="0" width="46" height="18" rx="5" fill="#9A7245"/>
+        <rect x="30" y="14" width="50" height="9" rx="2" fill="#7A5528"/>
+        <rect x="18" y="23" width="74" height="192" rx="12" fill="url(#bot_body)"/>
+        <rect x="22" y="27" width="66" height="184" rx="10" fill="rgba(255,255,255,0.05)"/>
+        <!-- Logo band -->
+        <rect x="18" y="96" width="74" height="50" fill="rgba(34,30,31,0.34)"/>
+        <text x="55" y="126" font-family="'Barlow Condensed',sans-serif" font-size="14" font-weight="700" letter-spacing="2.5" fill="rgba(255,255,255,0.92)" text-anchor="middle">${clientInitials}</text>
+        <!-- Shine -->
+        <rect x="28" y="30" width="16" height="170" rx="8" fill="rgba(255,255,255,0.07)"/>
+        <rect x="18" y="205" width="74" height="10" rx="5" fill="#7A5528"/>
+      </g>
+      <!-- Second bottle, side -->
+      <g transform="translate(360,30) scale(0.65)" opacity="0.45">
+        <rect x="18" y="23" width="74" height="192" rx="12" fill="#9A7245"/>
+        <rect x="30" y="14" width="50" height="9" rx="2" fill="#7A5528"/>
+        <rect x="32" y="0" width="46" height="18" rx="5" fill="#8A6235"/>
+      </g>
+      <rect width="600" height="220" fill="url(#bot_fade)"/>
+    </svg>`;
+  }
+
+  function svgBooth() {
+    return `<svg viewBox="0 0 900 500" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block">
+      <defs>
+        <linearGradient id="bth_bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#1a1618"/><stop offset="100%" stop-color="#0f0e0c"/></linearGradient>
+        <linearGradient id="bth_floor" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(196,154,108,0.1)"/><stop offset="100%" stop-color="rgba(196,154,108,0.02)"/></linearGradient>
+        <linearGradient id="bth_wall" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#2C2728"/><stop offset="100%" stop-color="#1a1618"/></linearGradient>
+        <linearGradient id="bth_light" x1="0.5" y1="0" x2="0.5" y2="1"><stop offset="0%" stop-color="rgba(196,154,108,0.22)"/><stop offset="100%" stop-color="transparent"/></linearGradient>
+      </defs>
+      <rect width="900" height="500" fill="url(#bth_bg)"/>
+      <!-- Floor -->
+      <polygon points="0,500 900,500 720,290 180,290" fill="url(#bth_floor)"/>
+      <!-- Floor grid -->
+      <line x1="180" y1="290" x2="0" y2="500" stroke="rgba(196,154,108,0.05)" stroke-width="1"/>
+      <line x1="300" y1="290" x2="160" y2="500" stroke="rgba(196,154,108,0.05)" stroke-width="1"/>
+      <line x1="450" y1="290" x2="390" y2="500" stroke="rgba(196,154,108,0.05)" stroke-width="1"/>
+      <line x1="590" y1="290" x2="600" y2="500" stroke="rgba(196,154,108,0.05)" stroke-width="1"/>
+      <line x1="680" y1="290" x2="760" y2="500" stroke="rgba(196,154,108,0.05)" stroke-width="1"/>
+      <!-- Back wall panels -->
+      <rect x="170" y="70" width="560" height="220" fill="url(#bth_wall)" stroke="rgba(196,154,108,0.12)" stroke-width="1"/>
+      <!-- Centre hero panel -->
+      <rect x="270" y="80" width="360" height="200" fill="rgba(196,154,108,0.07)"/>
+      <!-- Kraft top bar -->
+      <rect x="170" y="70" width="560" height="5" fill="#C49A6C" opacity="0.8"/>
+      <!-- Dramatic ceiling light wash -->
+      <ellipse cx="450" cy="70" rx="220" ry="60" fill="url(#bth_light)"/>
+      <!-- Brand panel on back wall -->
+      <rect x="320" y="112" width="260" height="96" rx="4" fill="rgba(255,255,255,0.06)" stroke="rgba(196,154,108,0.25)" stroke-width="1.5"/>
+      <text x="450" y="158" font-family="'Barlow Condensed',sans-serif" font-size="28" font-weight="700" letter-spacing="5" fill="rgba(255,255,255,0.9)" text-anchor="middle">${clientInitials}</text>
+      <text x="450" y="182" font-family="'Barlow Condensed',sans-serif" font-size="9" font-weight="600" letter-spacing="4" fill="rgba(196,154,108,0.6)" text-anchor="middle">${clientName.toUpperCase().slice(0,22)}</text>
+      <!-- Left display pod -->
+      <rect x="192" y="210" width="96" height="80" rx="3" fill="rgba(196,154,108,0.12)" stroke="rgba(196,154,108,0.28)" stroke-width="1"/>
+      <rect x="202" y="220" width="76" height="52" rx="2" fill="rgba(196,154,108,0.07)"/>
+      <!-- Right display pod -->
+      <rect x="612" y="210" width="96" height="80" rx="3" fill="rgba(196,154,108,0.12)" stroke="rgba(196,154,108,0.28)" stroke-width="1"/>
+      <rect x="622" y="220" width="76" height="52" rx="2" fill="rgba(196,154,108,0.07)"/>
+      <!-- Front counter -->
+      <rect x="298" y="252" width="304" height="52" rx="4" fill="#2C2728" stroke="rgba(196,154,108,0.38)" stroke-width="1.5"/>
+      <rect x="298" y="252" width="304" height="7" rx="2" fill="rgba(196,154,108,0.42)"/>
+      <!-- Staff silhouettes -->
+      <circle cx="345" cy="265" r="10" fill="rgba(255,255,255,0.06)"/>
+      <ellipse cx="345" cy="292" rx="16" ry="9" fill="rgba(255,255,255,0.05)"/>
+      <circle cx="555" cy="263" r="10" fill="rgba(255,255,255,0.06)"/>
+      <ellipse cx="555" cy="290" rx="16" ry="9" fill="rgba(255,255,255,0.05)"/>
+      <!-- Overhead spot lights -->
+      <line x1="280" y1="0" x2="300" y2="70" stroke="rgba(255,255,255,0.06)" stroke-width="1.5"/>
+      <circle cx="280" cy="0" r="6" fill="rgba(255,255,255,0.14)"/>
+      <line x1="620" y1="0" x2="600" y2="70" stroke="rgba(255,255,255,0.06)" stroke-width="1.5"/>
+      <circle cx="620" cy="0" r="6" fill="rgba(255,255,255,0.14)"/>
+      <line x1="450" y1="0" x2="450" y2="70" stroke="rgba(255,255,255,0.05)" stroke-width="1.5"/>
+      <circle cx="450" cy="0" r="5" fill="rgba(255,255,255,0.1)"/>
+      <!-- Adjacent hall booths -->
+      <rect x="20" y="175" width="80" height="115" rx="2" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+      <rect x="800" y="175" width="80" height="115" rx="2" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+      <!-- Visitors in foreground -->
+      <circle cx="220" cy="370" r="18" fill="rgba(255,255,255,0.05)"/>
+      <ellipse cx="220" cy="430" rx="24" ry="40" fill="rgba(255,255,255,0.04)"/>
+      <circle cx="680" cy="365" r="16" fill="rgba(255,255,255,0.05)"/>
+      <ellipse cx="680" cy="422" rx="22" ry="38" fill="rgba(255,255,255,0.04)"/>
+    </svg>`;
+  }
+
+  function svgSignage() {
+    const hl1 = (deck.signage?.headline_1 || 'Feel The Difference').toUpperCase();
+    const hl2 = (deck.signage?.headline_2 || 'Make It Memorable').toUpperCase();
+    return `<svg viewBox="0 0 900 560" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block">
+      <defs><linearGradient id="sg_bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#0f0e0c"/><stop offset="100%" stop-color="#221E1F"/></linearGradient></defs>
+      <rect width="900" height="560" fill="url(#sg_bg)"/>
+      <!-- Main banner -->
+      <rect x="48" y="40" width="390" height="378" rx="4" fill="#1a1618" stroke="rgba(196,154,108,0.2)" stroke-width="1"/>
+      <rect x="48" y="40" width="390" height="5" fill="#C49A6C" opacity="0.85"/>
+      <rect x="48" y="413" width="390" height="5" fill="#C49A6C" opacity="0.35"/>
+      <!-- Headline text -->
+      <foreignObject x="68" y="96" width="350" height="120">
+        <div xmlns="http://www.w3.org/1999/xhtml" style="font-family:Barlow Condensed,sans-serif;font-size:40px;font-weight:700;letter-spacing:2px;color:rgba(255,255,255,0.94);line-height:1.08;word-wrap:break-word">${hl1}</div>
+      </foreignObject>
+      <line x1="78" y1="228" x2="428" y2="228" stroke="rgba(196,154,108,0.42)" stroke-width="1.5"/>
+      <foreignObject x="68" y="240" width="350" height="80">
+        <div xmlns="http://www.w3.org/1999/xhtml" style="font-family:Barlow Condensed,sans-serif;font-size:28px;font-weight:400;letter-spacing:3px;color:#C49A6C;line-height:1.2;word-wrap:break-word">${hl2}</div>
+      </foreignObject>
+      <!-- Client name -->
+      <rect x="148" y="336" width="190" height="48" rx="3" fill="rgba(196,154,108,0.12)" stroke="rgba(196,154,108,0.3)" stroke-width="1"/>
+      <text x="243" y="365" font-family="'Barlow Condensed',sans-serif" font-size="14" font-weight="700" letter-spacing="3" fill="rgba(255,255,255,0.82)" text-anchor="middle">${clientName.toUpperCase().slice(0,16)}</text>
+      <!-- Arrow wayfinding sign -->
+      <rect x="478" y="82" width="210" height="58" rx="3" fill="#C49A6C" opacity="0.92"/>
+      <text x="583" y="117" font-family="'Barlow Condensed',sans-serif" font-size="20" font-weight="700" letter-spacing="2" fill="#221E1F" text-anchor="middle">THIS WAY →</text>
+      <!-- Second direction sign -->
+      <rect x="478" y="156" width="210" height="52" rx="3" fill="rgba(196,154,108,0.12)" stroke="rgba(196,154,108,0.3)" stroke-width="1"/>
+      <text x="583" y="188" font-family="'Barlow Condensed',sans-serif" font-size="16" font-weight="600" letter-spacing="2" fill="rgba(196,154,108,0.8)" text-anchor="middle">STAND ${clientInitials}</text>
+      <!-- Pillar wrap -->
+      <rect x="730" y="52" width="80" height="404" rx="3" fill="#2C2728" stroke="rgba(196,154,108,0.13)" stroke-width="1"/>
+      <rect x="730" y="52" width="80" height="5" fill="#C49A6C" opacity="0.72"/>
+      <rect x="730" y="451" width="80" height="5" fill="#C49A6C" opacity="0.38"/>
+      <text x="770" y="266" font-family="'Barlow Condensed',sans-serif" font-size="12" font-weight="700" letter-spacing="4" fill="rgba(196,154,108,0.62)" text-anchor="middle" transform="rotate(-90,770,266)">${clientName.toUpperCase().slice(0,14)}</text>
+      <!-- Floor circle -->
+      <ellipse cx="583" cy="498" rx="114" ry="35" fill="rgba(196,154,108,0.07)" stroke="rgba(196,154,108,0.2)" stroke-width="1.5"/>
+      <text x="583" y="503" font-family="'Barlow Condensed',sans-serif" font-size="10" font-weight="600" letter-spacing="2.5" fill="rgba(196,154,108,0.45)" text-anchor="middle">YOU ARE HERE</text>
+    </svg>`;
+  }
+
+  function svgHero() {
+    return `<svg viewBox="0 0 500 600" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block">
+      <defs><linearGradient id="hv_bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#221E1F"/><stop offset="100%" stop-color="#1a1618"/></linearGradient></defs>
+      <rect width="500" height="600" fill="url(#hv_bg)"/>
+      <!-- Concentric rings -->
+      <circle cx="250" cy="300" r="44" fill="rgba(196,154,108,0.3)"/>
+      <circle cx="250" cy="300" r="84" fill="none" stroke="rgba(196,154,108,0.24)" stroke-width="2"/>
+      <circle cx="250" cy="300" r="134" fill="none" stroke="rgba(196,154,108,0.14)" stroke-width="1.5"/>
+      <circle cx="250" cy="300" r="194" fill="none" stroke="rgba(196,154,108,0.07)" stroke-width="1"/>
+      <circle cx="250" cy="300" r="264" fill="none" stroke="rgba(196,154,108,0.04)" stroke-width="1"/>
+      <!-- People nodes -->
+      <circle cx="250" cy="208" r="14" fill="rgba(224,220,218,0.42)"/>
+      <circle cx="332" cy="253" r="12" fill="rgba(224,220,218,0.34)"/>
+      <circle cx="322" cy="354" r="13" fill="rgba(196,154,108,0.55)"/>
+      <circle cx="238" cy="392" r="12" fill="rgba(224,220,218,0.3)"/>
+      <circle cx="166" cy="348" r="14" fill="rgba(196,154,108,0.48)"/>
+      <circle cx="172" cy="246" r="12" fill="rgba(224,220,218,0.34)"/>
+      <!-- Connection lines -->
+      <line x1="250" y1="300" x2="250" y2="208" stroke="rgba(196,154,108,0.22)" stroke-width="1.5"/>
+      <line x1="250" y1="300" x2="332" y2="253" stroke="rgba(196,154,108,0.22)" stroke-width="1.5"/>
+      <line x1="250" y1="300" x2="322" y2="354" stroke="rgba(196,154,108,0.22)" stroke-width="1.5"/>
+      <line x1="250" y1="300" x2="238" y2="392" stroke="rgba(196,154,108,0.22)" stroke-width="1.5"/>
+      <line x1="250" y1="300" x2="166" y2="348" stroke="rgba(196,154,108,0.22)" stroke-width="1.5"/>
+      <line x1="250" y1="300" x2="172" y2="246" stroke="rgba(196,154,108,0.22)" stroke-width="1.5"/>
+      <!-- Centre initials -->
+      <text x="250" y="308" font-family="'Barlow Condensed',sans-serif" font-size="20" font-weight="700" letter-spacing="2" fill="rgba(255,255,255,0.82)" text-anchor="middle">${clientInitials}</text>
+      <!-- Particles -->
+      <circle cx="80" cy="105" r="2.5" fill="rgba(196,154,108,0.22)"/>
+      <circle cx="415" cy="85" r="3" fill="rgba(196,154,108,0.16)"/>
+      <circle cx="65" cy="480" r="2" fill="rgba(196,154,108,0.18)"/>
+      <circle cx="438" cy="500" r="3" fill="rgba(196,154,108,0.14)"/>
+    </svg>`;
+  }
+
+  // ── Helper: image with SVG fallback ───────────────────────────────────────
+  function imgWithFallback(src, svgFallback, alt, style) {
+    const id = 'img_' + Math.random().toString(36).slice(2,7);
+    return `<div style="position:relative;width:100%;height:100%;overflow:hidden">
+      <img id="${id}" src="${src}" alt="${alt}" style="${style};position:absolute;inset:0;width:100%;height:100%;object-fit:cover"
+        onerror="this.style.display='none';document.getElementById('${id}_svg').style.display='block'">
+      <div id="${id}_svg" style="display:none;position:absolute;inset:0;width:100%;height:100%">${svgFallback}</div>
+    </div>`;
+  }
+
+  // ── Merchandise images ────────────────────────────────────────────────────
+  const merchPhotos = [PHOTOS.bag, PHOTOS.notebook, PHOTOS.bottle];
+  const merchSVGs   = [svgBag(), svgNotebook(), svgBottle()];
   const merch = (deck.merchandise || []).map((m, i) => `
     <div class="deck-card" style="padding:0;overflow:hidden;display:flex;flex-direction:column">
-      <div style="position:relative;overflow:hidden;flex-shrink:0">
-        ${merchSVG(i, m.title)}
+      <div style="position:relative;height:200px;overflow:hidden;flex-shrink:0">
+        ${imgWithFallback(merchPhotos[i] || PHOTOS.bag, merchSVGs[i] || svgBag(), m.title, 'filter:brightness(0.75) saturate(0.8)')}
+        <div style="position:absolute;inset:0;background:linear-gradient(to bottom,transparent 40%,rgba(15,14,12,0.75) 100%);pointer-events:none"></div>
         <div style="position:absolute;top:12px;left:12px">
-          <span style="font-family:var(--condensed);font-size:10px;font-weight:700;letter-spacing:0.12em;color:rgba(255,255,255,0.75);background:rgba(15,14,12,0.6);padding:4px 8px;border-radius:2px">Merchandise ${String(i+1).padStart(2,'0')}</span>
+          <span style="font-family:var(--condensed);font-size:10px;font-weight:700;letter-spacing:0.12em;color:rgba(255,255,255,0.8);background:rgba(15,14,12,0.6);padding:4px 8px;border-radius:2px">Merchandise ${String(i+1).padStart(2,'0')}</span>
         </div>
+        ${clientLogoSrc ? `<div style="position:absolute;bottom:12px;right:12px;background:rgba(255,255,255,0.9);border-radius:4px;padding:5px 9px">
+          <img src="${clientLogoSrc}" style="height:24px;width:auto;max-width:80px;object-fit:contain;display:block" alt="${clientName}" onerror="this.parentElement.style.display='none'">
+        </div>` : `<div style="position:absolute;bottom:12px;right:12px;background:rgba(196,154,108,0.2);border:1px solid rgba(196,154,108,0.4);border-radius:3px;padding:5px 10px;font-family:var(--condensed);font-size:11px;font-weight:700;letter-spacing:1px;color:var(--kraft)">${clientInitials}</div>`}
       </div>
       <div style="padding:20px;flex:1;background:rgba(196,154,108,0.04);border:1px solid rgba(196,154,108,0.12);border-top:none">
         <div class="deck-card-title">${m.title}</div>
@@ -1879,179 +2237,24 @@ function renderDeck(company, event, deck) {
       </div>
     </div>`).join('');
 
-  // ── ROE SVGs ─────────────────────────────────────────────────────────────
-  const roeSVG1 = `<svg viewBox="0 0 500 320" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block">
-    <defs><linearGradient id="r1bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#221E1F"/><stop offset="100%" stop-color="#1a1618"/></linearGradient></defs>
-    <rect width="500" height="320" fill="url(#r1bg)"/>
-    <circle cx="160" cy="120" r="38" fill="rgba(196,154,108,0.55)"/>
-    <ellipse cx="160" cy="230" rx="52" ry="68" fill="rgba(196,154,108,0.4)"/>
-    <circle cx="340" cy="120" r="38" fill="rgba(224,220,218,0.4)"/>
-    <ellipse cx="340" cy="230" rx="52" ry="68" fill="rgba(224,220,218,0.28)"/>
-    <path d="M194,128 Q250,85 306,128" fill="none" stroke="#C49A6C" stroke-width="2.5" opacity="0.6"/>
-    <circle cx="250" cy="115" r="10" fill="#C49A6C" opacity="0.85"/>
-    <circle cx="250" cy="115" r="24" fill="none" stroke="#C49A6C" stroke-width="1.5" opacity="0.3"/>
-    <circle cx="250" cy="115" r="42" fill="none" stroke="#C49A6C" stroke-width="1" opacity="0.15"/>
-    <circle cx="80" cy="55" r="3" fill="rgba(196,154,108,0.35)"/>
-    <circle cx="420" cy="70" r="2" fill="rgba(196,154,108,0.25)"/>
-    <circle cx="55" cy="260" r="4" fill="rgba(196,154,108,0.18)"/>
-    <circle cx="440" cy="280" r="3" fill="rgba(196,154,108,0.2)"/>
-  </svg>`;
+  // ── ROE section ───────────────────────────────────────────────────────────
+  const roeStats = deck.roe_stats || [];
+  const stat1 = roeStats[0] || {};
+  const stat2 = roeStats[1] || {};
 
-  const roeSVG2 = `<svg viewBox="0 0 260 175" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block">
-    <rect width="260" height="175" fill="#1a1618"/>
-    <circle cx="50" cy="145" r="28" fill="rgba(196,154,108,0.12)"/>
-    <circle cx="95" cy="138" r="22" fill="rgba(196,154,108,0.18)"/>
-    <circle cx="140" cy="142" r="30" fill="rgba(196,154,108,0.1)"/>
-    <circle cx="185" cy="136" r="24" fill="rgba(196,154,108,0.15)"/>
-    <circle cx="225" cy="143" r="20" fill="rgba(196,154,108,0.11)"/>
-    <rect x="0" y="75" width="260" height="35" fill="rgba(196,154,108,0.06)"/>
-    <path d="M10,70 Q55,42 100,62 Q145,82 190,52 Q220,35 252,48" fill="none" stroke="#C49A6C" stroke-width="2" opacity="0.55" stroke-linecap="round"/>
-    <path d="M10,88 Q65,62 115,78 Q158,92 200,68 Q228,52 252,62" fill="none" stroke="rgba(196,154,108,0.25)" stroke-width="1.5"/>
-    <circle cx="55" cy="28" r="3" fill="rgba(196,154,108,0.3)"/>
-    <circle cx="200" cy="20" r="2" fill="rgba(196,154,108,0.2)"/>
-  </svg>`;
-
-  const roeSVG3 = `<svg viewBox="0 0 260 175" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block">
-    <rect width="260" height="175" fill="#2C2728"/>
-    <path d="M20,105 Q80,68 130,88 Q175,105 238,68" fill="none" stroke="#C49A6C" stroke-width="2.5" opacity="0.55" stroke-linecap="round"/>
-    <circle cx="130" cy="88" r="18" fill="rgba(196,154,108,0.22)"/>
-    <circle cx="130" cy="88" r="32" fill="none" stroke="rgba(196,154,108,0.12)" stroke-width="2"/>
-    <path d="M88,102 Q108,86 130,88" fill="none" stroke="rgba(224,220,218,0.45)" stroke-width="6" stroke-linecap="round"/>
-    <path d="M172,74 Q152,86 130,88" fill="none" stroke="rgba(196,154,108,0.7)" stroke-width="6" stroke-linecap="round"/>
-    <circle cx="50" cy="44" r="3" fill="rgba(196,154,108,0.28)"/>
-    <circle cx="210" cy="145" r="4" fill="rgba(196,154,108,0.18)"/>
-    <circle cx="28" cy="155" r="2" fill="rgba(196,154,108,0.22)"/>
-    <circle cx="240" cy="35" r="3" fill="rgba(196,154,108,0.15)"/>
-  </svg>`;
-
-  // ── Booth SVG ─────────────────────────────────────────────────────────────
-  const boothSVG = `<svg viewBox="0 0 900 460" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block">
-    <defs>
-      <linearGradient id="bth_bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#1a1618"/><stop offset="100%" stop-color="#0f0e0c"/></linearGradient>
-      <linearGradient id="bth_floor" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(196,154,108,0.1)"/><stop offset="100%" stop-color="rgba(196,154,108,0.02)"/></linearGradient>
-      <linearGradient id="bth_wall" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#2C2728"/><stop offset="100%" stop-color="#1a1618"/></linearGradient>
-      <linearGradient id="bth_panel" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#221E1F"/><stop offset="50%" stop-color="rgba(196,154,108,0.12)"/><stop offset="100%" stop-color="#221E1F"/></linearGradient>
-    </defs>
-    <rect width="900" height="460" fill="url(#bth_bg)"/>
-    <polygon points="0,460 900,460 720,285 180,285" fill="url(#bth_floor)"/>
-    <line x1="180" y1="285" x2="0" y2="460" stroke="rgba(196,154,108,0.05)" stroke-width="1"/>
-    <line x1="300" y1="285" x2="160" y2="460" stroke="rgba(196,154,108,0.05)" stroke-width="1"/>
-    <line x1="440" y1="285" x2="360" y2="460" stroke="rgba(196,154,108,0.05)" stroke-width="1"/>
-    <line x1="580" y1="285" x2="580" y2="460" stroke="rgba(196,154,108,0.05)" stroke-width="1"/>
-    <line x1="660" y1="285" x2="740" y2="460" stroke="rgba(196,154,108,0.05)" stroke-width="1"/>
-    <rect x="180" y="75" width="540" height="210" fill="url(#bth_wall)" stroke="rgba(196,154,108,0.12)" stroke-width="1"/>
-    <rect x="200" y="85" width="500" height="190" fill="url(#bth_panel)"/>
-    <rect x="180" y="75" width="540" height="5" fill="#C49A6C" opacity="0.75"/>
-    <rect x="320" y="118" width="260" height="88" rx="4" fill="rgba(255,255,255,0.05)" stroke="rgba(196,154,108,0.22)" stroke-width="1"/>
-    <text x="450" y="162" font-family="'Barlow Condensed',sans-serif" font-size="26" font-weight="700" letter-spacing="5" fill="rgba(255,255,255,0.88)" text-anchor="middle">${clientInitials}</text>
-    <text x="450" y="186" font-family="'Barlow Condensed',sans-serif" font-size="9" font-weight="600" letter-spacing="3.5" fill="rgba(196,154,108,0.55)" text-anchor="middle">${clientName.toUpperCase().slice(0,20)}</text>
-    <rect x="200" y="218" width="88" height="67" rx="3" fill="rgba(196,154,108,0.13)" stroke="rgba(196,154,108,0.28)" stroke-width="1"/>
-    <rect x="210" y="228" width="68" height="46" rx="2" fill="rgba(196,154,108,0.07)"/>
-    <rect x="612" y="218" width="88" height="67" rx="3" fill="rgba(196,154,108,0.13)" stroke="rgba(196,154,108,0.28)" stroke-width="1"/>
-    <rect x="622" y="228" width="68" height="46" rx="2" fill="rgba(196,154,108,0.07)"/>
-    <rect x="295" y="242" width="310" height="48" rx="4" fill="#2C2728" stroke="rgba(196,154,108,0.32)" stroke-width="1.5"/>
-    <rect x="295" y="242" width="310" height="7" rx="2" fill="rgba(196,154,108,0.38)"/>
-    <ellipse cx="340" cy="278" rx="16" ry="8" fill="rgba(255,255,255,0.05)"/>
-    <circle cx="340" cy="263" r="9" fill="rgba(255,255,255,0.06)"/>
-    <ellipse cx="560" cy="278" rx="16" ry="8" fill="rgba(255,255,255,0.05)"/>
-    <circle cx="560" cy="263" r="9" fill="rgba(255,255,255,0.06)"/>
-    <ellipse cx="450" cy="115" rx="160" ry="30" fill="rgba(196,154,108,0.05)"/>
-    <rect x="30" y="170" width="75" height="115" rx="2" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
-    <rect x="795" y="170" width="75" height="115" rx="2" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
-    <line x1="280" y1="0" x2="280" y2="75" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
-    <circle cx="280" cy="0" r="5" fill="rgba(255,255,255,0.1)"/>
-    <ellipse cx="280" cy="75" rx="50" ry="8" fill="rgba(255,255,255,0.03)"/>
-    <line x1="620" y1="0" x2="620" y2="75" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
-    <circle cx="620" cy="0" r="5" fill="rgba(255,255,255,0.1)"/>
-    <ellipse cx="620" cy="75" rx="50" ry="8" fill="rgba(255,255,255,0.03)"/>
-  </svg>`;
-
-  // ── Signage SVG ───────────────────────────────────────────────────────────
-  const signHL1 = (deck.signage?.headline_1 || 'Feel The Difference').toUpperCase();
-  const signHL2 = (deck.signage?.headline_2 || 'Make It Memorable').toUpperCase();
-
-  const signageSVG = `<svg viewBox="0 0 900 560" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block">
-    <defs>
-      <linearGradient id="sg_bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#0f0e0c"/><stop offset="100%" stop-color="#221E1F"/></linearGradient>
-    </defs>
-    <rect width="900" height="560" fill="url(#sg_bg)"/>
-    <!-- Main banner panel -->
-    <rect x="55" y="45" width="380" height="360" rx="4" fill="#1a1618" stroke="rgba(196,154,108,0.18)" stroke-width="1"/>
-    <rect x="55" y="45" width="380" height="5" fill="#C49A6C" opacity="0.85"/>
-    <rect x="55" y="400" width="380" height="5" fill="#C49A6C" opacity="0.35"/>
-    <!-- Headline text -->
-    <foreignObject x="75" y="100" width="340" height="120">
-      <div xmlns="http://www.w3.org/1999/xhtml" style="font-family:'Barlow Condensed',sans-serif;font-size:36px;font-weight:700;letter-spacing:2px;color:rgba(255,255,255,0.93);line-height:1.1;word-wrap:break-word">${signHL1}</div>
-    </foreignObject>
-    <line x1="85" y1="228" x2="415" y2="228" stroke="rgba(196,154,108,0.4)" stroke-width="1.5"/>
-    <foreignObject x="75" y="240" width="340" height="80">
-      <div xmlns="http://www.w3.org/1999/xhtml" style="font-family:'Barlow Condensed',sans-serif;font-size:26px;font-weight:400;letter-spacing:3px;color:#C49A6C;line-height:1.2;word-wrap:break-word">${signHL2}</div>
-    </foreignObject>
-    <!-- Client name box -->
-    <rect x="155" y="328" width="180" height="46" rx="3" fill="rgba(196,154,108,0.12)" stroke="rgba(196,154,108,0.3)" stroke-width="1"/>
-    <text x="245" y="356" font-family="'Barlow Condensed',sans-serif" font-size="14" font-weight="700" letter-spacing="3" fill="rgba(255,255,255,0.82)" text-anchor="middle">${clientName.toUpperCase().slice(0,16)}</text>
-    <!-- Wayfinding arrow sign -->
-    <rect x="475" y="88" width="200" height="58" rx="3" fill="#C49A6C" opacity="0.92"/>
-    <text x="575" y="123" font-family="'Barlow Condensed',sans-serif" font-size="20" font-weight="700" letter-spacing="2" fill="#221E1F" text-anchor="middle">THIS WAY  →</text>
-    <!-- Second directional -->
-    <rect x="475" y="162" width="200" height="50" rx="3" fill="rgba(196,154,108,0.12)" stroke="rgba(196,154,108,0.3)" stroke-width="1"/>
-    <text x="575" y="193" font-family="'Barlow Condensed',sans-serif" font-size="16" font-weight="600" letter-spacing="2" fill="rgba(196,154,108,0.8)" text-anchor="middle">STAND  ${clientInitials}</text>
-    <!-- Pillar wrap mockup -->
-    <rect x="718" y="55" width="76" height="390" rx="3" fill="#2C2728" stroke="rgba(196,154,108,0.13)" stroke-width="1"/>
-    <rect x="718" y="55" width="76" height="5" fill="#C49A6C" opacity="0.7"/>
-    <rect x="718" y="440" width="76" height="5" fill="#C49A6C" opacity="0.4"/>
-    <text x="756" y="268" font-family="'Barlow Condensed',sans-serif" font-size="12" font-weight="700" letter-spacing="4" fill="rgba(196,154,108,0.6)" text-anchor="middle" transform="rotate(-90,756,268)">${clientName.toUpperCase().slice(0,14)}</text>
-    <!-- Floor circle sticker -->
-    <ellipse cx="575" cy="490" rx="110" ry="34" fill="rgba(196,154,108,0.07)" stroke="rgba(196,154,108,0.2)" stroke-width="1.5"/>
-    <text x="575" y="495" font-family="'Barlow Condensed',sans-serif" font-size="10" font-weight="600" letter-spacing="2.5" fill="rgba(196,154,108,0.45)" text-anchor="middle">YOU ARE HERE</text>
-    <!-- Ambient lines -->
-    <line x1="475" y1="245" x2="695" y2="245" stroke="rgba(196,154,108,0.05)" stroke-width="28"/>
-  </svg>`;
-
-  // ── Hero activation SVG — network/connection energy ───────────────────────
-  const heroSVG = `<svg viewBox="0 0 500 600" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block">
-    <defs><linearGradient id="hv_bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#221E1F"/><stop offset="100%" stop-color="#1a1618"/></linearGradient></defs>
-    <rect width="500" height="600" fill="url(#hv_bg)"/>
-    <circle cx="250" cy="300" r="42" fill="rgba(196,154,108,0.28)"/>
-    <circle cx="250" cy="300" r="80" fill="none" stroke="rgba(196,154,108,0.22)" stroke-width="2"/>
-    <circle cx="250" cy="300" r="130" fill="none" stroke="rgba(196,154,108,0.13)" stroke-width="1.5"/>
-    <circle cx="250" cy="300" r="190" fill="none" stroke="rgba(196,154,108,0.07)" stroke-width="1"/>
-    <circle cx="250" cy="300" r="260" fill="none" stroke="rgba(196,154,108,0.04)" stroke-width="1"/>
-    <circle cx="250" cy="212" r="13" fill="rgba(224,220,218,0.4)"/>
-    <circle cx="326" cy="255" r="11" fill="rgba(224,220,218,0.32)"/>
-    <circle cx="318" cy="352" r="12" fill="rgba(196,154,108,0.52)"/>
-    <circle cx="238" cy="388" r="11" fill="rgba(224,220,218,0.28)"/>
-    <circle cx="172" cy="345" r="13" fill="rgba(196,154,108,0.46)"/>
-    <circle cx="178" cy="248" r="11" fill="rgba(224,220,218,0.32)"/>
-    <line x1="250" y1="300" x2="250" y2="212" stroke="rgba(196,154,108,0.2)" stroke-width="1.5"/>
-    <line x1="250" y1="300" x2="326" y2="255" stroke="rgba(196,154,108,0.2)" stroke-width="1.5"/>
-    <line x1="250" y1="300" x2="318" y2="352" stroke="rgba(196,154,108,0.2)" stroke-width="1.5"/>
-    <line x1="250" y1="300" x2="238" y2="388" stroke="rgba(196,154,108,0.2)" stroke-width="1.5"/>
-    <line x1="250" y1="300" x2="172" y2="345" stroke="rgba(196,154,108,0.2)" stroke-width="1.5"/>
-    <line x1="250" y1="300" x2="178" y2="248" stroke="rgba(196,154,108,0.2)" stroke-width="1.5"/>
-    <text x="250" y="308" font-family="'Barlow Condensed',sans-serif" font-size="18" font-weight="700" letter-spacing="2" fill="rgba(255,255,255,0.82)" text-anchor="middle">${clientInitials}</text>
-    <circle cx="80" cy="105" r="2.5" fill="rgba(196,154,108,0.22)"/>
-    <circle cx="415" cy="85" r="3" fill="rgba(196,154,108,0.16)"/>
-    <circle cx="65" cy="480" r="2" fill="rgba(196,154,108,0.18)"/>
-    <circle cx="438" cy="500" r="3" fill="rgba(196,154,108,0.14)"/>
-  </svg>`;
-
-  // ── Timeline for next steps ───────────────────────────────────────────────
+  // ── Timeline ──────────────────────────────────────────────────────────────
   const rawSteps = deck.next_steps || [];
-  const stepsData = rawSteps.map(s =>
-    typeof s === 'string' ? { action: s, date: '', owner: '' } : s
-  );
+  const stepsData = rawSteps.map(s => typeof s === 'string' ? {action:s, date:'', owner:''} : s);
   const timelineItems = stepsData.map((s, i) => {
     const isLast = i === stepsData.length - 1;
-    return `
-    <div style="display:flex;gap:0;align-items:stretch;min-height:72px">
+    return `<div style="display:flex;gap:0;align-items:stretch;min-height:72px">
       <div style="display:flex;flex-direction:column;align-items:center;width:44px;flex-shrink:0">
-        <div style="width:14px;height:14px;border-radius:50%;background:#C49A6C;border:2px solid #C49A6C;flex-shrink:0;margin-top:5px;box-shadow:0 0 0 4px rgba(196,154,108,0.13)"></div>
+        <div style="width:14px;height:14px;border-radius:50%;background:#C49A6C;flex-shrink:0;margin-top:5px;box-shadow:0 0 0 4px rgba(196,154,108,0.13)"></div>
         ${!isLast ? `<div style="width:2px;flex:1;background:linear-gradient(to bottom,rgba(196,154,108,0.4),rgba(196,154,108,0.08));margin-top:4px;min-height:36px"></div>` : ''}
       </div>
-      <div style="padding-bottom:${isLast ? '0' : '28px'};padding-left:10px;flex:1">
+      <div style="padding-bottom:${isLast?'0':'28px'};padding-left:10px;flex:1">
         ${s.date ? `<div style="font-family:var(--condensed);font-size:11px;font-weight:700;letter-spacing:0.1em;color:#C49A6C;margin-bottom:4px;text-transform:uppercase">${s.date}</div>` : ''}
-        <div style="font-size:14px;color:var(--bon-jour);font-weight:400;line-height:1.55;margin-bottom:${s.owner ? '4px' : '0'}">${s.action}</div>
+        <div style="font-size:14px;color:var(--bon-jour);font-weight:400;line-height:1.55;margin-bottom:${s.owner?'4px':'0'}">${s.action}</div>
         ${s.owner ? `<div style="font-family:var(--condensed);font-size:10px;letter-spacing:0.06em;color:rgba(224,220,218,0.35);text-transform:uppercase">${s.owner}</div>` : ''}
       </div>
       <div style="flex-shrink:0;padding-left:12px;padding-top:2px">
@@ -2060,16 +2263,11 @@ function renderDeck(company, event, deck) {
     </div>`;
   }).join('');
 
-  const roeStats = (deck.roe_stats || []);
-  const stat1 = roeStats[0] || {};
-  const stat2 = roeStats[1] || {};
-
-  // ── Build slides ──────────────────────────────────────────────────────────
   return `
   <div class="deck-slide cover">
     ${logoB64 ? `<img src="${logoB64}" class="deck-cover-logo" style="height:36px;width:auto;opacity:0.9" alt="Brand Revolution">` : `<div class="deck-cover-logo" style="font-family:var(--condensed);font-size:16px;font-weight:700;letter-spacing:0.18em;color:var(--kraft)">BRAND REVOLUTION</div>`}
     <div class="deck-eyebrow">Brand Activation Proposal</div>
-    <div class="deck-heading">${company.company}</div>
+    <div class="deck-heading">${clientName}</div>
     <div class="deck-subheading">${event.event_name}</div>
     <div class="deck-rule"></div>
     <div class="deck-body"><p>${deck.roe_headline}</p></div>
@@ -2080,6 +2278,7 @@ function renderDeck(company, event, deck) {
     <div class="deck-slide-num">01</div>
   </div>
 
+  <!-- Slide 02: ROE — split layout, real people photos right -->
   <div class="deck-slide mid" style="padding:0;min-height:100vh;display:grid;grid-template-columns:1fr 1fr;gap:0">
     <div style="padding:80px 8%;display:flex;flex-direction:column;justify-content:center">
       <div class="deck-eyebrow">Return on Emotion®</div>
@@ -2096,15 +2295,18 @@ function renderDeck(company, event, deck) {
       </div>` : ''}
     </div>
     <div style="display:grid;grid-template-rows:1fr 1fr;gap:3px;overflow:hidden">
-      <div style="overflow:hidden">${roeSVG1}</div>
+      <div style="overflow:hidden;height:100%">
+        ${imgWithFallback(PHOTOS.people1, svgPeople1(), 'Human connection at events', 'filter:brightness(0.72) saturate(0.8)')}
+      </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px;overflow:hidden">
-        <div style="overflow:hidden">${roeSVG2}</div>
-        <div style="overflow:hidden">${roeSVG3}</div>
+        <div style="overflow:hidden">${imgWithFallback(PHOTOS.people2, svgPeople2(), 'Conference energy', 'filter:brightness(0.68) saturate(0.75)')}</div>
+        <div style="overflow:hidden">${imgWithFallback(PHOTOS.people3, svgPeople3(), 'People connecting', 'filter:brightness(0.68) saturate(0.75)')}</div>
       </div>
     </div>
     <div class="deck-slide-num">02</div>
   </div>
 
+  <!-- Slide 03: Merchandise — product photos with client logo -->
   <div class="deck-slide dark" style="padding:60px 8%">
     <div class="deck-eyebrow">Merchandise Programme</div>
     <div class="deck-heading" style="margin-bottom:8px">Products That<br>Create Connection</div>
@@ -2113,9 +2315,22 @@ function renderDeck(company, event, deck) {
     <div class="deck-slide-num">03</div>
   </div>
 
+  <!-- Slide 04: Trade Stand — real event venue photo + SVG booth -->
   <div class="deck-slide" style="padding:0;min-height:100vh;display:grid;grid-template-rows:58% 42%;background:#0f0e0c">
     <div style="position:relative;overflow:hidden">
-      ${boothSVG}
+      ${imgWithFallback(PHOTOS.booth1, svgBooth(), 'Trade show exhibition stand', 'filter:brightness(0.6) saturate(0.75)')}
+      <div style="position:absolute;inset:0;background:linear-gradient(to bottom,rgba(15,14,12,0.15) 0%,rgba(15,14,12,0.8) 100%);pointer-events:none"></div>
+      <!-- Client logo overlay centred on stand image -->
+      ${clientLogoSrc ? `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-60%);text-align:center">
+        <div style="background:rgba(255,255,255,0.1);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,0.22);border-radius:6px;padding:16px 32px;display:inline-block">
+          <img src="${clientLogoSrc}" style="height:52px;width:auto;max-width:220px;object-fit:contain;filter:brightness(10)" alt="${clientName}" onerror="this.parentElement.style.display='none'">
+        </div>
+      </div>` : `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-60%);text-align:center">
+        <div style="background:rgba(255,255,255,0.08);backdrop-filter:blur(8px);border:1px solid rgba(196,154,108,0.35);border-radius:6px;padding:16px 36px">
+          <div style="font-family:var(--condensed);font-size:32px;font-weight:700;letter-spacing:5px;color:rgba(255,255,255,0.88)">${clientInitials}</div>
+          <div style="font-family:var(--condensed);font-size:10px;letter-spacing:3px;color:rgba(196,154,108,0.6);margin-top:6px">${clientName.toUpperCase().slice(0,20)}</div>
+        </div>
+      </div>`}
       <div style="position:absolute;top:28px;left:8%">
         <div class="deck-eyebrow" style="margin:0">Trade Stand Concept</div>
       </div>
@@ -2128,8 +2343,17 @@ function renderDeck(company, event, deck) {
     <div class="deck-slide-num">04</div>
   </div>
 
+  <!-- Slide 05: Signage — office/venue photo left, signage SVG right -->
   <div class="deck-slide" style="padding:0;min-height:100vh;display:grid;grid-template-columns:1fr 1fr;gap:0;background:#0f0e0c">
-    <div style="overflow:hidden;position:relative">${signageSVG}</div>
+    <div style="overflow:hidden;position:relative">
+      ${imgWithFallback(PHOTOS.signage, svgSignage(), 'Creative signage direction', 'filter:brightness(0.6) saturate(0.7)')}
+      <div style="position:absolute;inset:0;background:linear-gradient(90deg,transparent 30%,rgba(15,14,12,0.85) 100%);pointer-events:none"></div>
+      <!-- Headline overlaid on image -->
+      <div style="position:absolute;bottom:40px;left:32px;right:0">
+        <div style="font-family:var(--condensed);font-size:clamp(22px,2.5vw,38px);font-weight:700;letter-spacing:2px;color:rgba(255,255,255,0.92);text-transform:uppercase;line-height:1.1;text-shadow:0 2px 12px rgba(0,0,0,0.5)">${deck.signage?.headline_1 || ''}</div>
+        <div style="font-family:var(--condensed);font-size:clamp(16px,1.8vw,26px);font-weight:400;letter-spacing:3px;color:var(--kraft);margin-top:8px;text-transform:uppercase;text-shadow:0 2px 8px rgba(0,0,0,0.5)">${deck.signage?.headline_2 || ''}</div>
+      </div>
+    </div>
     <div style="padding:80px 8%;display:flex;flex-direction:column;justify-content:center">
       <div class="deck-eyebrow">Signage & Creative Direction</div>
       <div class="deck-heading" style="font-size:clamp(28px,3.5vw,52px)">${deck.signage?.title || 'Signage Concept'}</div>
@@ -2139,8 +2363,12 @@ function renderDeck(company, event, deck) {
     <div class="deck-slide-num">05</div>
   </div>
 
+  <!-- Slide 06: Hero Activation — people photo left, content right -->
   <div class="deck-slide" style="padding:0;min-height:100vh;display:grid;grid-template-columns:1fr 1fr;gap:0;background:#0f0e0c">
-    <div style="overflow:hidden;background:linear-gradient(135deg,#221E1F 0%,#1a1618 100%)">${heroSVG}</div>
+    <div style="overflow:hidden;position:relative">
+      ${imgWithFallback(PHOTOS.hero, svgHero(), 'Brand activation energy', 'filter:brightness(0.58) saturate(0.72)')}
+      <div style="position:absolute;inset:0;background:linear-gradient(90deg,transparent 40%,rgba(15,14,12,0.88) 100%);pointer-events:none"></div>
+    </div>
     <div style="padding:80px 8%;display:flex;flex-direction:column;justify-content:center">
       <div class="deck-eyebrow">Hero Brand Activation</div>
       <div class="deck-heading" style="font-size:clamp(28px,3.5vw,52px)">${deck.hero_activation?.title || 'Hero Activation'}</div>
@@ -2150,6 +2378,7 @@ function renderDeck(company, event, deck) {
     <div class="deck-slide-num">06</div>
   </div>
 
+  <!-- Slide 07: Next Steps — timeline left, CTA right -->
   <div class="deck-slide dark" style="min-height:100vh;display:grid;grid-template-columns:1fr 1fr;gap:0;padding:0">
     <div style="padding:80px 8%;display:flex;flex-direction:column;justify-content:center;border-right:1px solid rgba(196,154,108,0.1)">
       <div class="deck-eyebrow">Next Steps</div>
@@ -2169,7 +2398,6 @@ function renderDeck(company, event, deck) {
     <div class="deck-slide-num">07</div>
   </div>`;
 }
-
 
 async function pushDeckLinkToHubspot(companyId, companyName, eventName, url) {
   try {
@@ -2215,63 +2443,431 @@ Just create the engagement note. Return {"status":"ok"}.`
   }
 })();
 
-// ── Extension URL pre-fill ────────────────────────────────────────────────────
-// Asks the background service worker for the URL of the tab that was active
-// when the user clicked the EventIntel toolbar icon.
-(function() {
-  function applyPrefill(url) {
-    if (!url) return;
-    function tryFill() {
-      const urlEl = document.getElementById('company-url');
-      if (urlEl) {
-        urlEl.value = url;
-        try {
-          const hostname = new URL(url).hostname.replace(/^www\./, '').split('.')[0];
-          const nameEl = document.getElementById('company-name');
-          if (nameEl && !nameEl.value) {
-            nameEl.value = hostname.charAt(0).toUpperCase() + hostname.slice(1);
-          }
-        } catch(e) {}
-      } else {
-        setTimeout(tryFill, 100);
+// ── PowerPoint Export ─────────────────────────────────────────────────────────
+async function generatePptx() {
+  const btn = document.getElementById('pptx-btn');
+  if (btn) { btn.textContent = '⏳ Building…'; btn.disabled = true; }
+
+  const d = window._currentDeck;
+  if (!d) { if(btn){btn.textContent='Download PowerPoint';btn.disabled=false;} return; }
+  const { company, event, deck } = d;
+  const clientName = company.company || '';
+  const industry   = company.industry || '';
+  const clientInitials = clientName.split(' ').slice(0,3).map(w=>w[0]||'').join('').toUpperCase().slice(0,3);
+
+  try {
+    // ── Minimal ZIP builder (no external library) ─────────────────────────────
+    // A .pptx is a ZIP of XML files. We build it using raw bytes.
+
+    function strToBytes(str) {
+      return new TextEncoder().encode(str);
+    }
+
+    function crc32(bytes) {
+      let crc = 0xFFFFFFFF;
+      const table = [];
+      for (let i = 0; i < 256; i++) {
+        let c = i;
+        for (let j = 0; j < 8; j++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+        table[i] = c;
+      }
+      for (let i = 0; i < bytes.length; i++) crc = table[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+      return (crc ^ 0xFFFFFFFF) >>> 0;
+    }
+
+    function u16le(n) { return [n & 0xFF, (n >> 8) & 0xFF]; }
+    function u32le(n) { return [n & 0xFF, (n >> 8) & 0xFF, (n >> 16) & 0xFF, (n >> 24) & 0xFF]; }
+
+    class MiniZip {
+      constructor() { this.entries = []; this.data = []; this.offset = 0; }
+      add(name, content) {
+        const nameBytes = strToBytes(name);
+        const contentBytes = typeof content === 'string' ? strToBytes(content) : content;
+        const crc = crc32(contentBytes);
+        const now = new Date();
+        const dosTime = ((now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1));
+        const dosDate = (((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate());
+        const local = [
+          0x50,0x4B,0x03,0x04, // local file header sig
+          20,0,                  // version needed
+          0,0,                   // flags
+          0,0,                   // compression (stored)
+          ...u16le(dosTime), ...u16le(dosDate),
+          ...u32le(crc),
+          ...u32le(contentBytes.length),
+          ...u32le(contentBytes.length),
+          ...u16le(nameBytes.length),
+          0,0,                   // extra field length
+          ...nameBytes,
+          ...contentBytes
+        ];
+        this.entries.push({ nameBytes, crc, size: contentBytes.length, offset: this.offset, dosTime, dosDate });
+        this.data.push(...local);
+        this.offset += local.length;
+      }
+      build() {
+        const centralStart = this.data.length;
+        for (const e of this.entries) {
+          const cd = [
+            0x50,0x4B,0x01,0x02,
+            20,0, 20,0, 0,0, 0,0,
+            ...u16le(e.dosTime), ...u16le(e.dosDate),
+            ...u32le(e.crc),
+            ...u32le(e.size), ...u32le(e.size),
+            ...u16le(e.nameBytes.length),
+            0,0, 0,0, 0,0, 0,0, 0,0,0,0,
+            ...u32le(e.offset),
+            ...e.nameBytes
+          ];
+          this.data.push(...cd);
+        }
+        const centralEnd = this.data.length;
+        const eocd = [
+          0x50,0x4B,0x05,0x06,
+          0,0, 0,0,
+          ...u16le(this.entries.length), ...u16le(this.entries.length),
+          ...u32le(centralEnd - centralStart),
+          ...u32le(centralStart),
+          0,0
+        ];
+        this.data.push(...eocd);
+        return new Uint8Array(this.data);
       }
     }
-    tryFill();
-  }
 
-  // Request the stored URL from the background service worker
-  // (works when this page is loaded inside the Chrome extension side panel)
-  if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-    try {
-      chrome.runtime.sendMessage({ type: 'GET_PREFILL_URL' }, (response) => {
-        if (chrome.runtime.lastError) return; // not in extension context
-        if (response && response.url) applyPrefill(response.url);
-      });
-    } catch(e) {}
-  }
+    // ── Colour helpers ────────────────────────────────────────────────────────
+    const KRAFT  = 'C49A6C';
+    const RAISIN = '221E1F';
+    const R2     = '2C2728';
+    const WHITE  = 'FFFFFF';
+    const MUTED  = 'A09090';
+    const DIM    = 'C0B0A8';
+    const DARK   = '0f0e0c';
 
-  // Fallback: direct chrome.storage.session (bundled extension context)
-  if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.session) {
-    chrome.storage.session.get('prefill_url', (result) => {
-      if (result && result.prefill_url) {
-        applyPrefill(result.prefill_url);
-        chrome.storage.session.remove('prefill_url');
-      }
+    // EMU conversions (914400 EMU = 1 inch; slides are 12192000 x 6858000 EMU for 16:9 widescreen)
+    const W = 12192000, H = 6858000;
+    function i(inches) { return Math.round(inches * 914400); }
+    function rgb(hex) { return `<a:srgbClr val="${hex}"/>` }
+
+    function solidFill(hex) {
+      return `<a:solidFill>${rgb(hex)}</a:solidFill>`;
+    }
+    function textBody(paras) {
+      return `<p:txBody><a:bodyPr/><a:lstStyle/>${paras}</p:txBody>`;
+    }
+    function para(runs, align='l') {
+      return `<a:p><a:pPr algn="${align}"/>${runs}</a:p>`;
+    }
+    function run(text, opts={}) {
+      const sz   = opts.sz   ? `sz="${opts.sz*100}"` : 'sz="1400"';
+      const bold = opts.bold ? '<a:b val="1"/>' : '';
+      const it   = opts.italic ? '<a:i val="1"/>' : '';
+      const col  = opts.col  ? `<a:solidFill>${rgb(opts.col)}</a:solidFill>` : '';
+      const sp   = opts.spc  ? `spc="${opts.spc}"` : '';
+      const face = opts.face || 'Calibri';
+      return `<a:r><a:rPr lang="en-GB" ${sz} ${sp} dirty="0">${bold}${it}${col}<a:latin typeface="${face}"/></a:rPr><a:t>${esc(text)}</a:t></a:r>`;
+    }
+    function esc(s) {
+      return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // Shape helpers — all coords in inches
+    function rect(id, x, y, w, h, fillHex, opts={}) {
+      const lnXml = opts.line ? `<p:ln w="${opts.lineW||9525}"><a:solidFill>${rgb(opts.line)}</a:solidFill></p:ln>` : '<p:ln><a:noFill/></p:ln>';
+      return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="rect${id}"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr/></p:nvSpPr>
+<p:spPr><a:xfrm><a:off x="${i(x)}" y="${i(y)}"/><a:ext cx="${i(w)}" cy="${i(h)}"/></a:xfrm>
+<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>${solidFill(fillHex)}${lnXml}</p:spPr>
+${textBody('')}</p:sp>`;
+    }
+
+    function textBox(id, x, y, w, h, paras, opts={}) {
+      const noFill = '<a:noFill/>';
+      return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="tb${id}"/><p:cNvSpPr txBox="1"><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr/></p:nvSpPr>
+<p:spPr><a:xfrm><a:off x="${i(x)}" y="${i(y)}"/><a:ext cx="${i(w)}" cy="${i(h)}"/></a:xfrm>
+<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>${noFill}<p:ln><a:noFill/></p:ln></p:spPr>
+${textBody(paras)}</p:sp>`;
+    }
+
+    function slide(bgHex, shapes) {
+      return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+       xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<p:cSld><p:bg><p:bgPr>${solidFill(bgHex)}<a:effectLst/></p:bgPr></p:bg>
+<p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+<p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
+${shapes}
+</p:spTree></p:cSld></p:sld>`;
+    }
+
+    function h1(text, col, sz=36) { return para(run(text, {sz, bold:true, col})); }
+    function h2(text, col, sz=16) { return para(run(text, {sz, col})); }
+    function label(text) { return para(run(text.toUpperCase(), {sz:9, col:KRAFT, spc:300})); }
+    function body(text, col=DIM, sz=12) { return para(run(text, {sz, col})); }
+
+    // ── Build 7 slides ────────────────────────────────────────────────────────
+    const stats = deck.roe_stats || [];
+    const merch = deck.merchandise || [];
+    const steps = (deck.next_steps||[]).map(s=>typeof s==='string'?{action:s,date:'',owner:''}:s);
+    const hl1 = (deck.signage?.headline_1 || 'Feel The Difference').toUpperCase();
+    const hl2 = (deck.signage?.headline_2 || 'Make It Memorable').toUpperCase();
+
+    // S1 — Cover
+    const s1 = slide(RAISIN, [
+      rect(2,0,0,13.33,0.06,KRAFT),
+      textBox(3,0.7,0.5,6,0.5, para([run('BRAND REVOLUTION', {sz:13,col:WHITE,bold:true,spc:400})])),
+      textBox(4,0.7,1.4,9,0.4, label('Brand Activation Proposal')),
+      textBox(5,0.7,1.9,10,1.4, h1(clientName.toUpperCase(), WHITE, 48)),
+      textBox(6,0.7,3.4,9,0.8, h2(event.event_name, KRAFT, 24)),
+      rect(7,0.7,4.45,1.8,0.05,KRAFT),
+      textBox(8,0.7,4.65,8,0.8, body(deck.roe_headline||'', 'C8BAB0', 14)),
+      textBox(9,0.7,6.5,9,0.4, body('Event: '+event.event_date+'   |   Industry: '+industry, MUTED, 10)),
+      textBox(10,12,6.8,1.1,0.4, para(run('01', {sz:10, col:'3A3030'}), 'r')),
+    ].join(''));
+
+    // S2 — ROE
+    const s2 = slide('1a1618', [
+      textBox(2,0.6,0.5,7,0.4, label('Return on Emotion®')),
+      textBox(3,0.6,0.95,5.5,1.8, para(run('The Human\nOpportunity', {sz:36,bold:true,col:WHITE}))),
+      rect(4,0.6,2.85,1.2,0.05,KRAFT),
+      textBox(5,0.6,3.05,5.5,1.3, body(deck.roe_insight||'','C8BAB0',12)),
+      textBox(6,0.6,4.55,2.5,0.8, h1(stats[0]?.num||'', KRAFT, 44)),
+      textBox(7,0.6,5.35,3.5,0.4, body(stats[0]?.label||'', MUTED, 10)),
+      textBox(8,3.8,4.55,2.5,0.8, h1(stats[1]?.num||'', KRAFT, 44)),
+      textBox(9,3.8,5.35,3.5,0.4, body(stats[1]?.label||'', MUTED, 10)),
+      rect(10,7.1,0,6.2,7.5,'140E0F'),
+      textBox(11,7.5,1.8,5.4,2.2, para(run('Human connection is at\nthe heart of every\ngreat brand moment.', {sz:22,bold:true,col:WHITE}))),
+      textBox(12,7.5,4.2,5.4,1.2, body('Every handshake. Every shared moment.\nEvery conversation that builds trust.','CBBFB8',12)),
+      textBox(13,12,6.8,1.1,0.4, para(run('02',{sz:10,col:'3A3030'}),'r')),
+    ].join(''));
+
+    // S3 — Merchandise
+    const colW = 3.7;
+    const s3shapes = [
+      textBox(2,0.6,0.35,7,0.4, label('Merchandise Programme')),
+      textBox(3,0.6,0.8,11,0.9, h1('Products That Create Connection', WHITE, 30)),
+      rect(4,0.6,1.8,1.2,0.05,KRAFT),
+      ...merch.slice(0,3).flatMap((m,ii) => {
+        const cx = 0.6 + ii*(colW+0.27);
+        const base = 20 + ii*20;
+        return [
+          rect(base,cx,2.05,colW,4.9,R2),
+          rect(base+1,cx,2.05,colW,0.05,KRAFT),
+          textBox(base+2,cx+0.15,2.12,colW-0.3,0.35, label('Merchandise 0'+(ii+1))),
+          textBox(base+3,cx+0.15,2.5,colW-0.3,0.65, h1(m.title||'', WHITE, 16)),
+          rect(base+4,cx+0.15,3.2,colW-0.3,0.03,R2),
+          textBox(base+5,cx+0.15,3.28,colW-0.3,2.0, body(m.description||'','C0B0A8',11)),
+          rect(base+6,cx+0.15,5.6,colW-0.3,1.0,R2,{line:KRAFT,lineW:6350}),
+          textBox(base+7,cx+0.15,5.6,colW-0.3,1.0, para(run(clientName.toUpperCase().slice(0,14),{sz:14,bold:true,col:KRAFT,spc:200}),'ctr')),
+        ];
+      }),
+      textBox(80,12,6.8,1.1,0.4, para(run('03',{sz:10,col:'3A3030'}),'r')),
+    ];
+    const s3 = slide(RAISIN, s3shapes.join(''));
+
+    // S4 — Trade Stand
+    const s4 = slide(DARK, [
+      rect(2,0,0,13.33,4.1,'140E0F'),
+      rect(3,0,4.1,13.33,0.05,KRAFT),
+      textBox(4,0.6,0.45,7,0.4, label('Trade Stand Concept')),
+      textBox(5,0.6,0.9,9,1.1, h1(deck.booth_concept?.title||'Booth Concept', WHITE, 38)),
+      rect(6,4.3,1.75,4.7,1.8,R2,{line:KRAFT,lineW:6350}),
+      textBox(7,4.3,1.75,4.7,1.8, para(run(clientName.toUpperCase().slice(0,18),{sz:28,bold:true,col:WHITE,spc:300}),'ctr')),
+      rect(8,0.6,4.35,1.2,0.05,KRAFT),
+      textBox(9,0.6,4.5,7.8,2.2, body(deck.booth_concept?.description||'','C0B0A8',12)),
+      textBox(10,9.1,4.4,4,0.4, para(run('Stand highlights',{sz:10,bold:true,col:KRAFT,spc:200}))),
+      textBox(11,9.1,4.95,3.9,2.0, ['Branded back wall panel','Interactive display pods','Front-of-house counter','Experiential zone'].map(pt=>body('• '+pt,'C0B0A8',11)).join('')),
+      textBox(12,12,6.8,1.1,0.4, para(run('04',{sz:10,col:'3A3030'}),'r')),
+    ].join(''));
+
+    // S5 — Signage
+    const s5 = slide(DARK, [
+      rect(2,0,0,6.0,7.5,'180E10'),
+      rect(3,0,0,6.0,0.05,KRAFT),
+      textBox(4,0.5,0.9,5.0,2.2, h1(hl1, WHITE, 40)),
+      rect(5,0.5,3.1,5.0,0.04,KRAFT),
+      textBox(6,0.5,3.25,5.0,1.2, h1(hl2, KRAFT, 26)),
+      rect(7,0.5,5.45,5.0,1.15,R2,{line:KRAFT,lineW:6350}),
+      textBox(8,0.5,5.45,5.0,1.15, para(run(clientName.toUpperCase().slice(0,16),{sz:20,bold:true,col:KRAFT,spc:300}),'ctr')),
+      textBox(9,6.5,0.65,6.2,0.4, label('Signage & Creative Direction')),
+      textBox(10,6.5,1.1,6.2,1.5, h1(deck.signage?.title||'Signage Concept', WHITE, 32)),
+      rect(11,6.5,2.65,1.2,0.05,KRAFT),
+      textBox(12,6.5,2.85,6.2,2.2, body(deck.signage?.description||'','C0B0A8',12)),
+      textBox(13,12,6.8,1.1,0.4, para(run('05',{sz:10,col:'3A3030'}),'r')),
+    ].join(''));
+
+    // S6 — Hero Activation
+    const s6 = slide(DARK, [
+      rect(2,0,0,5.8,7.5,'160A0C'),
+      rect(3,0,0,5.8,0.05,KRAFT),
+      // Concentric ovals for network visual
+      ...[1.8,1.4,1.0,0.6].map((r,ii)=>rect(10+ii,2.9-r,3.75-r*0.75,r*2,r*1.5,DARK,{line:KRAFT,lineW:Math.round(6350*(1-ii*0.2))})),
+      rect(14,2.6,3.55,0.6,0.44,KRAFT),
+      textBox(15,2.6,3.55,0.6,0.44, para(run(clientInitials,{sz:11,bold:true,col:RAISIN}),'ctr')),
+      textBox(16,6.3,0.65,6.4,0.4, label('Hero Brand Activation')),
+      textBox(17,6.3,1.1,6.4,1.5, h1(deck.hero_activation?.title||'Hero Activation', WHITE, 34)),
+      rect(18,6.3,2.7,1.2,0.05,KRAFT),
+      textBox(19,6.3,2.9,6.4,3.5, body(deck.hero_activation?.description||'','C0B0A8',12)),
+      textBox(20,12,6.8,1.1,0.4, para(run('06',{sz:10,col:'3A3030'}),'r')),
+    ].join(''));
+
+    // S7 — Next Steps
+    const s7shapes = [
+      rect(2,7.1,0,6.2,7.5,'27201F'),
+      textBox(3,0.6,0.5,5.5,0.4, label('Next Steps')),
+      textBox(4,0.6,0.95,5.5,1.6, para(run("Let's Make\nIt Happen",{sz:38,bold:true,col:WHITE}))),
+      rect(5,0.6,2.7,1.2,0.05,KRAFT),
+      ...steps.flatMap((st,ii)=>{
+        const sy = 3.0 + ii*1.22;
+        const base2 = 30+ii*5;
+        return [
+          rect(base2,0.6,sy,0.18,0.18,KRAFT),
+          ...(ii<steps.length-1?[rect(base2+1,0.68,sy+0.18,0.02,1.02,KRAFT)]:[]),
+          textBox(base2+2,0.95,sy+(st.date?0:0.02),5.2,1.15, [
+            st.date?label(st.date):'',
+            body(st.action,'CBBFB8',12),
+            st.owner?body(st.owner,MUTED,10):''
+          ].join('')),
+          textBox(base2+3,5.1,sy-0.05,0.85,0.55, para(run('0'+(ii+1),{sz:24,bold:true,col:'3A3030'}),'r')),
+        ];
+      }),
+      textBox(60,7.5,1.4,5.4,0.4, label('Ready to begin?')),
+      textBox(61,7.5,2.0,5.4,2.8, body("Every great brand moment starts with a conversation.\n\nLet's build something your audience will never forget.",'CBBFB8',16)),
+      rect(62,7.5,5.05,3.6,0.65,KRAFT),
+      textBox(63,7.5,5.05,3.6,0.65, para(run('Start the conversation →',{sz:13,bold:true,col:RAISIN}),'ctr')),
+      textBox(64,7.5,6.5,5.4,0.35, para(run('BRAND REVOLUTION',{sz:10,bold:true,col:'5A4A42',spc:400}))),
+      textBox(65,7.5,6.85,5.4,0.3, body('Return on Emotion® · '+new Date().getFullYear(),'4A3838',9)),
+      textBox(66,12,6.8,1.1,0.4, para(run('07',{sz:10,col:'3A3030'}),'r')),
+    ];
+    const s7 = slide(RAISIN, s7shapes.join(''));
+
+    const slides = [s1,s2,s3,s4,s5,s6,s7];
+
+    // ── Assemble the PPTX ZIP ─────────────────────────────────────────────────
+    const zip = new MiniZip();
+
+    // [Content_Types].xml
+    zip.add('[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>
+  <Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>
+  <Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/>
+  ${slides.map((_,i)=>`<Override PartName="/ppt/slides/slide${i+1}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`).join('\n  ')}
+</Types>`);
+
+    zip.add('_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>
+</Relationships>`);
+
+    // Minimal slide master
+    const masterXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sldMaster xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<p:cSld><p:bg><p:bgPr><a:solidFill><a:srgbClr val="221E1F"/></a:solidFill></p:bgPr></p:bg><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr></p:spTree></p:cSld>
+<p:txStyles><p:titleStyle><a:lvl1pPr><a:defRPr lang="en-GB" sz="2800" b="1"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:latin typeface="Calibri"/></a:defRPr></a:lvl1pPr></p:titleStyle><p:bodyStyle><a:lvl1pPr><a:defRPr lang="en-GB" sz="1400"><a:solidFill><a:srgbClr val="E0DCDA"/></a:solidFill><a:latin typeface="Calibri"/></a:defRPr></a:lvl1pPr></p:bodyStyle><p:otherStyle><a:lvl1pPr><a:defRPr lang="en-GB"><a:latin typeface="Calibri"/></a:defRPr></a:lvl1pPr></p:otherStyle></p:txStyles>
+<p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rId1"/></p:sldLayoutIdLst></p:sldMaster>`;
+
+    zip.add('ppt/slideMasters/slideMaster1.xml', masterXml);
+    zip.add('ppt/slideMasters/_rels/slideMaster1.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
+</Relationships>`);
+
+    // Minimal slide layout
+    zip.add('ppt/slideLayouts/slideLayout1.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sldLayout xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" type="blank">
+<p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr></p:spTree></p:cSld></p:sldLayout>`);
+
+    zip.add('ppt/slideLayouts/_rels/slideLayout1.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/>
+</Relationships>`);
+
+    // Slides
+    slides.forEach((xml, idx) => {
+      zip.add(`ppt/slides/slide${idx+1}.xml`, xml);
+      zip.add(`ppt/slides/_rels/slide${idx+1}.xml.rels`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
+</Relationships>`);
     });
+
+    // Presentation
+    const slideIds = slides.map((_,i)=>`<p:sldId id="${256+i}" r:id="rId${i+3}"/>`).join('\n    ');
+    const slideRels = slides.map((_,i)=>`  <Relationship Id="rId${i+3}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide${i+1}.xml"/>`).join('\n');
+
+    zip.add('ppt/presentation.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:presentation xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" saveSubsetFonts="1">
+<p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst>
+<p:sldIdLst>${slideIds}</p:sldIdLst>
+<p:sldSz cx="${W}" cy="${H}" type="screen16x9"/>
+<p:notesSz cx="${H}" cy="${W}"/>
+</p:presentation>`);
+
+    zip.add('ppt/_rels/presentation.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="slideMasters/slideMaster1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml"/>
+${slideRels}
+</Relationships>`);
+
+    zip.add('ppt/theme/theme1.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="EventIntel">
+<a:themeElements><a:clrScheme name="EventIntel">
+<a:dk1><a:srgbClr val="221E1F"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1>
+<a:dk2><a:srgbClr val="C49A6C"/></a:dk2><a:lt2><a:srgbClr val="E0DCDA"/></a:lt2>
+<a:accent1><a:srgbClr val="C49A6C"/></a:accent1><a:accent2><a:srgbClr val="79C099"/></a:accent2>
+<a:accent3><a:srgbClr val="2C2728"/></a:accent3><a:accent4><a:srgbClr val="332D2E"/></a:accent4>
+<a:accent5><a:srgbClr val="3D8B6C"/></a:accent5><a:accent6><a:srgbClr val="364B46"/></a:accent6>
+<a:hlink><a:srgbClr val="C49A6C"/></a:hlink><a:folHlink><a:srgbClr val="A07848"/></a:folHlink>
+</a:clrScheme>
+<a:fontScheme name="EventIntel"><a:majorFont><a:latin typeface="Calibri"/></a:majorFont><a:minorFont><a:latin typeface="Calibri"/></a:minorFont></a:fontScheme>
+<a:fmtScheme name="EventIntel"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln w="9525"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln w="9525"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln w="9525"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme>
+</a:themeElements></a:theme>`);
+
+    // Download
+    const bytes = zip.build();
+    const blob = new Blob([bytes], {type:'application/vnd.openxmlformats-officedocument.presentationml.presentation'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (clientName.replace(/[^a-z0-9]/gi,'_') + '_Brand_Activation.pptx');
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    if (btn) { btn.textContent = '✓ Downloaded'; btn.style.background='var(--aqua)'; btn.style.color=RAISIN; }
+    setTimeout(()=>{ if(btn){ btn.textContent='Download PowerPoint'; btn.style.background=''; btn.style.color=''; btn.disabled=false; }}, 3000);
+
+  } catch(err) {
+    console.error('PPTX error:', err);
+    if (btn) { btn.textContent = 'Error — try again'; btn.disabled = false; }
   }
-
-  // Fallback: URL query param
-  try {
-    const params = new URLSearchParams(window.location.search);
-    const prefill = params.get('prefill_url');
-    if (prefill) applyPrefill(decodeURIComponent(prefill));
-  } catch(e) {}
-})();
-
+}
 </script>
+
 <!-- Deck viewer overlay -->
 <div id="deck-viewer">
-  <button class="deck-close" onclick="closeDeck()">✕ Close</button>
+  <div class="deck-toolbar">
+    <div class="deck-toolbar-left">
+      <span class="deck-toolbar-brand">Brand Revolution</span>
+      <div class="deck-toolbar-sep"></div>
+      <span class="deck-toolbar-title">Activation Deck</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <button class="btn-pptx" id="pptx-btn" onclick="generatePptx()">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M7 9.5L3 5.5H5.5V1H8.5V5.5H11L7 9.5Z" fill="currentColor"/>
+          <path d="M1 11H13V13H1V11Z" fill="currentColor"/>
+        </svg>
+        Download PowerPoint
+      </button>
+      <button class="btn-close-deck" onclick="closeDeck()">✕ Close</button>
+    </div>
+  </div>
   <div id="deck-content"></div>
 </div>
 
