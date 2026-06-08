@@ -684,6 +684,29 @@
   .btn-hubspot:active { transform: scale(0.98); }
   .btn-hubspot:disabled { background: rgba(255,122,89,0.35); cursor: not-allowed; }
 
+  .hs-actions { margin: 14px 0 32px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .btn-hs-open {
+    display: inline-flex;
+    align-items: center;
+    height: 38px;
+    padding: 0 18px;
+    background: #FF7A59;
+    color: #fff;
+    border-radius: 2px;
+    font-family: var(--condensed);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background 0.15s, transform 0.1s;
+  }
+  .btn-hs-open:hover { background: #ff6040; }
+  .btn-hs-open:active { transform: scale(0.98); }
+  .btn-hs-open.secondary { background: transparent; color: var(--kraft); border: 1px solid var(--border); }
+  .btn-hs-open.secondary:hover { background: rgba(196,154,108,0.1); }
+
   .hs-log {
     background: var(--raisin3);
     border: 1px solid var(--border-dim);
@@ -903,12 +926,12 @@
 
   .deck-eyebrow {
     font-family: var(--condensed);
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.2em;
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
     text-transform: uppercase;
     color: var(--kraft);
-    margin-bottom: 16px;
+    margin-bottom: 18px;
   }
   .deck-heading {
     font-family: var(--condensed);
@@ -1600,7 +1623,8 @@ If not found, create a new company with:
   - website: "${window._lastUrl || ''}"
   - description: "Event Intel profile: ${d.summary || ''}"
 
-Return ONLY valid JSON: { "action": "found"|"created", "companyId": "string", "companyName": "string" }
+Return ONLY valid JSON: { "action": "found"|"created", "companyId": "string", "companyName": "string", "portalId": "string" }
+Set "portalId" to the HubSpot account / portal (hub) ID number for this account.
 No markdown, no explanation.`);
 
     const searchText = searchResp.content?.filter(b => b.type === 'text').map(b => b.text).join('') || '';
@@ -1609,8 +1633,9 @@ No markdown, no explanation.`);
     try { companyResult = JSON.parse(cleanSearch); }
     catch(e) { throw new Error('Could not parse company response from HubSpot.'); }
 
-    const { companyId, companyName, action } = companyResult;
+    const { companyId, companyName, action, portalId } = companyResult;
     window._lastHsCompanyId = companyId;
+    window._lastHsPortalId = portalId || '';
     hsLogUpdate(
       action === 'found'
         ? `Found existing company <strong>${companyName}</strong> <span>(ID: ${companyId})</span>`
@@ -1681,8 +1706,22 @@ No markdown, no explanation.`);
       );
     });
 
-    // ── Step 4: Summary ──────────────────────────────────────────────────────
-    hsLog(`<strong>Done.</strong> Open HubSpot to view the company record and tasks.`, 'ok');
+    // ── Step 4: Summary + open-in-HubSpot buttons ────────────────────────────
+    hsLog(`<strong>Done.</strong> ${created} task${created === 1 ? '' : 's'} pushed to HubSpot.`, 'ok');
+
+    const hsPortal = window._lastHsPortalId || '';
+    const tasksUrl   = hsPortal ? `https://app.hubspot.com/tasks/${hsPortal}/view/all` : 'https://app.hubspot.com/';
+    const companyUrl = (hsPortal && companyId) ? `https://app.hubspot.com/contacts/${hsPortal}/record/0-2/${companyId}` : '';
+    if (log) {
+      document.querySelectorAll('.hs-actions').forEach(e => e.remove());
+      const actions = document.createElement('div');
+      actions.className = 'hs-actions';
+      actions.innerHTML =
+        `<a class="btn-hs-open" href="${tasksUrl}" target="_blank" rel="noopener">View tasks in HubSpot ↗</a>` +
+        (companyUrl ? `<a class="btn-hs-open secondary" href="${companyUrl}" target="_blank" rel="noopener">Open ${companyName} record ↗</a>` : '');
+      log.insertAdjacentElement('afterend', actions);
+    }
+
     if (btn) { btn.textContent = '✓ Pushed to HubSpot'; btn.style.background = 'var(--aqua)'; btn.style.color = 'var(--raisin)'; }
 
   } catch(err) {
@@ -1948,6 +1987,9 @@ function renderDeck(company, event, deck) {
     try { return new URL(window._lastUrl||'').hostname.replace(/^www\./,''); } catch(e){ return ''; }
   })();
   const clientLogoSrc = clientDomain ? `https://logo.clearbit.com/${clientDomain}` : '';
+  const clientLogoFallback = clientDomain ? `https://www.google.com/s2/favicons?domain=${clientDomain}&sz=128` : '';
+  // onerror cascade: real logo -> favicon mark -> remove the overlay entirely
+  const logoErr = `if(!this.dataset.f){this.dataset.f=1;this.src='${clientLogoFallback}';}else{var w=this.closest('.client-logo-wrap');if(w)w.style.display='none';}`;
 
   // Curated Unsplash photo IDs — direct CDN (not redirect), works outside Claude.ai
   // Human connection / event / lifestyle photos
@@ -2373,9 +2415,9 @@ function renderDeck(company, event, deck) {
         <div style="position:absolute;top:12px;left:12px">
           <span style="font-family:var(--condensed);font-size:10px;font-weight:700;letter-spacing:0.12em;color:rgba(255,255,255,0.8);background:rgba(15,14,12,0.6);padding:4px 8px;border-radius:2px">Merchandise ${String(i+1).padStart(2,'0')}</span>
         </div>
-        ${clientLogoSrc ? `<div style="position:absolute;bottom:12px;right:12px;background:rgba(255,255,255,0.92);border-radius:4px;padding:5px 9px;box-shadow:0 2px 8px rgba(0,0,0,0.3)">
-          <img src="${clientLogoSrc}" style="height:22px;width:auto;max-width:80px;object-fit:contain;display:block" alt="${clientName}" onerror="this.parentElement.style.display='none'">
-        </div>` : `<div style="position:absolute;bottom:12px;right:12px;background:rgba(196,154,108,0.2);border:1px solid rgba(196,154,108,0.4);border-radius:3px;padding:5px 10px;font-family:var(--condensed);font-size:11px;font-weight:700;letter-spacing:1px;color:var(--kraft)">${clientInitials}</div>`}
+        ${clientLogoSrc ? `<div class="client-logo-wrap" style="position:absolute;bottom:12px;right:12px;background:rgba(255,255,255,0.92);border-radius:4px;padding:5px 9px;box-shadow:0 2px 8px rgba(0,0,0,0.3)">
+          <img src="${clientLogoSrc}" style="height:22px;width:auto;max-width:80px;object-fit:contain;display:block" alt="${clientName}" onerror="${logoErr}">
+        </div>` : ''}
       </div>
       <div style="padding:20px;flex:1;background:rgba(196,154,108,0.04);border:1px solid rgba(196,154,108,0.12);border-top:none">
         <div class="deck-card-title">${m.title}</div>
@@ -2468,16 +2510,11 @@ function renderDeck(company, event, deck) {
       ${imgWithFallback(getBoothPhoto((deck.booth_concept?.title||'') + ' ' + (deck.booth_concept?.description||'')), svgBooth(), 'Trade show exhibition stand', 'filter:brightness(0.6) saturate(0.75)')}
       <div style="position:absolute;inset:0;background:linear-gradient(to bottom,rgba(15,14,12,0.15) 0%,rgba(15,14,12,0.8) 100%);pointer-events:none"></div>
       <!-- Client logo overlay centred on stand image -->
-      ${clientLogoSrc ? `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-60%);text-align:center">
-        <div style="background:rgba(255,255,255,0.1);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,0.22);border-radius:6px;padding:16px 32px;display:inline-block">
-          <img src="${clientLogoSrc}" style="height:52px;width:auto;max-width:220px;object-fit:contain;filter:brightness(10)" alt="${clientName}" onerror="this.parentElement.style.display='none'">
+      ${clientLogoSrc ? `<div class="client-logo-wrap" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-60%);text-align:center">
+        <div style="background:rgba(255,255,255,0.94);border-radius:8px;padding:18px 34px;display:inline-block;box-shadow:0 4px 18px rgba(0,0,0,0.35)">
+          <img src="${clientLogoSrc}" style="height:48px;width:auto;max-width:240px;object-fit:contain;display:block" alt="${clientName}" onerror="${logoErr}">
         </div>
-      </div>` : `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-60%);text-align:center">
-        <div style="background:rgba(255,255,255,0.08);backdrop-filter:blur(8px);border:1px solid rgba(196,154,108,0.35);border-radius:6px;padding:16px 36px">
-          <div style="font-family:var(--condensed);font-size:32px;font-weight:700;letter-spacing:5px;color:rgba(255,255,255,0.88)">${clientInitials}</div>
-          <div style="font-family:var(--condensed);font-size:10px;letter-spacing:3px;color:rgba(196,154,108,0.6);margin-top:6px">${clientName.toUpperCase().slice(0,20)}</div>
-        </div>
-      </div>`}
+      </div>` : ''}
       <div style="position:absolute;top:28px;left:8%">
         <div class="deck-eyebrow" style="margin:0">Trade Stand Concept</div>
       </div>
