@@ -1098,6 +1098,7 @@
     .hs-bar { flex-direction: column; align-items: flex-start; }
   }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
 </head>
 <body>
 
@@ -2467,396 +2468,173 @@ async function generatePptx() {
   const industry   = company.industry || '';
   const clientInitials = clientName.split(' ').slice(0,3).map(w=>w[0]||'').join('').toUpperCase().slice(0,3);
 
+  if (typeof PptxGenJS === 'undefined') {
+    if(btn){btn.textContent='Error — library not loaded';btn.disabled=false;}
+    showError('PowerPoint library not loaded. Please refresh the page and try again.');
+    return;
+  }
+
   try {
-    // ── Minimal ZIP builder (no external library) ─────────────────────────────
-    // A .pptx is a ZIP of XML files. We build it using raw bytes.
+    const pres = new PptxGenJS();
+    pres.layout  = 'LAYOUT_WIDE'; // 13.3" × 7.5"
+    pres.author  = 'Brand Revolution';
+    pres.title   = `${clientName} — Brand Activation Proposal`;
+    pres.subject = event.event_name;
 
-    function strToBytes(str) {
-      return new TextEncoder().encode(str);
-    }
+    const KRAFT='C49A6C', RAISIN='221E1F', R2='2C2728', WHITE='FFFFFF', MUTED='A09090', DIM='C0B0A8';
 
-    function crc32(bytes) {
-      let crc = 0xFFFFFFFF;
-      const table = [];
-      for (let i = 0; i < 256; i++) {
-        let c = i;
-        for (let j = 0; j < 8; j++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
-        table[i] = c;
-      }
-      for (let i = 0; i < bytes.length; i++) crc = table[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
-      return (crc ^ 0xFFFFFFFF) >>> 0;
-    }
+    function bg(s,c){ s.addShape(pres.ShapeType.rect,{x:0,y:0,w:13.33,h:7.5,fill:{color:c},line:{type:'none'}}); }
+    function kbar(s,y=0,h=0.06){ s.addShape(pres.ShapeType.rect,{x:0,y,w:13.33,h,fill:{color:KRAFT},line:{type:'none'}}); }
+    function rule(s,x,y,w=1.2){ s.addShape(pres.ShapeType.rect,{x,y,w,h:0.04,fill:{color:KRAFT},line:{type:'none'}}); }
+    function slNum(s,n){ s.addText(String(n).padStart(2,'0'),{x:12.3,y:6.9,w:0.8,h:0.4,fontSize:10,fontFace:'Calibri',color:'3A3030',align:'right'}); }
+    function eb(s,t,x,y){ s.addText(t.toUpperCase(),{x,y,w:8,h:0.35,fontSize:10,bold:true,fontFace:'Calibri',color:KRAFT,charSpacing:5}); }
 
-    function u16le(n) { return [n & 0xFF, (n >> 8) & 0xFF]; }
-    function u32le(n) { return [n & 0xFF, (n >> 8) & 0xFF, (n >> 16) & 0xFF, (n >> 24) & 0xFF]; }
-
-    class MiniZip {
-      constructor() { this.entries = []; this.data = []; this.offset = 0; }
-      add(name, content) {
-        const nameBytes = strToBytes(name);
-        const contentBytes = typeof content === 'string' ? strToBytes(content) : content;
-        const crc = crc32(contentBytes);
-        const now = new Date();
-        const dosTime = ((now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1));
-        const dosDate = (((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate());
-        const local = [
-          0x50,0x4B,0x03,0x04, // local file header sig
-          20,0,                  // version needed
-          0,0,                   // flags
-          0,0,                   // compression (stored)
-          ...u16le(dosTime), ...u16le(dosDate),
-          ...u32le(crc),
-          ...u32le(contentBytes.length),
-          ...u32le(contentBytes.length),
-          ...u16le(nameBytes.length),
-          0,0,                   // extra field length
-          ...nameBytes,
-          ...contentBytes
-        ];
-        this.entries.push({ nameBytes, crc, size: contentBytes.length, offset: this.offset, dosTime, dosDate });
-        this.data.push(...local);
-        this.offset += local.length;
-      }
-      build() {
-        const centralStart = this.data.length;
-        for (const e of this.entries) {
-          const cd = [
-            0x50,0x4B,0x01,0x02,
-            20,0, 20,0, 0,0, 0,0,
-            ...u16le(e.dosTime), ...u16le(e.dosDate),
-            ...u32le(e.crc),
-            ...u32le(e.size), ...u32le(e.size),
-            ...u16le(e.nameBytes.length),
-            0,0, 0,0, 0,0, 0,0, 0,0,0,0,
-            ...u32le(e.offset),
-            ...e.nameBytes
-          ];
-          this.data.push(...cd);
-        }
-        const centralEnd = this.data.length;
-        const eocd = [
-          0x50,0x4B,0x05,0x06,
-          0,0, 0,0,
-          ...u16le(this.entries.length), ...u16le(this.entries.length),
-          ...u32le(centralEnd - centralStart),
-          ...u32le(centralStart),
-          0,0
-        ];
-        this.data.push(...eocd);
-        return new Uint8Array(this.data);
-      }
-    }
-
-    // ── Colour helpers ────────────────────────────────────────────────────────
-    const KRAFT  = 'C49A6C';
-    const RAISIN = '221E1F';
-    const R2     = '2C2728';
-    const WHITE  = 'FFFFFF';
-    const MUTED  = 'A09090';
-    const DIM    = 'C0B0A8';
-    const DARK   = '0f0e0c';
-
-    // EMU conversions (914400 EMU = 1 inch; slides are 12192000 x 6858000 EMU for 16:9 widescreen)
-    const W = 12192000, H = 6858000;
-    function i(inches) { return Math.round(inches * 914400); }
-    function rgb(hex) { return `<a:srgbClr val="${hex}"/>` }
-
-    function solidFill(hex) {
-      return `<a:solidFill>${rgb(hex)}</a:solidFill>`;
-    }
-    function textBody(paras) {
-      return `<p:txBody><a:bodyPr/><a:lstStyle/>${paras}</p:txBody>`;
-    }
-    function para(runs, align='l') {
-      return `<a:p><a:pPr algn="${align}"/>${runs}</a:p>`;
-    }
-    function run(text, opts={}) {
-      const sz   = opts.sz   ? `sz="${opts.sz*100}"` : 'sz="1400"';
-      const bold = opts.bold ? '<a:b val="1"/>' : '';
-      const it   = opts.italic ? '<a:i val="1"/>' : '';
-      const col  = opts.col  ? `<a:solidFill>${rgb(opts.col)}</a:solidFill>` : '';
-      const sp   = opts.spc  ? `spc="${opts.spc}"` : '';
-      const face = opts.face || 'Calibri';
-      return `<a:r><a:rPr lang="en-GB" ${sz} ${sp} dirty="0">${bold}${it}${col}<a:latin typeface="${face}"/></a:rPr><a:t>${esc(text)}</a:t></a:r>`;
-    }
-    function esc(s) {
-      return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-    }
-
-    // Shape helpers — all coords in inches
-    function rect(id, x, y, w, h, fillHex, opts={}) {
-      const lnXml = opts.line ? `<p:ln w="${opts.lineW||9525}"><a:solidFill>${rgb(opts.line)}</a:solidFill></p:ln>` : '<p:ln><a:noFill/></p:ln>';
-      return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="rect${id}"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr/></p:nvSpPr>
-<p:spPr><a:xfrm><a:off x="${i(x)}" y="${i(y)}"/><a:ext cx="${i(w)}" cy="${i(h)}"/></a:xfrm>
-<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>${solidFill(fillHex)}${lnXml}</p:spPr>
-${textBody('')}</p:sp>`;
-    }
-
-    function textBox(id, x, y, w, h, paras, opts={}) {
-      const noFill = '<a:noFill/>';
-      return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="tb${id}"/><p:cNvSpPr txBox="1"><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr/></p:nvSpPr>
-<p:spPr><a:xfrm><a:off x="${i(x)}" y="${i(y)}"/><a:ext cx="${i(w)}" cy="${i(h)}"/></a:xfrm>
-<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>${noFill}<p:ln><a:noFill/></p:ln></p:spPr>
-${textBody(paras)}</p:sp>`;
-    }
-
-    function slide(bgHex, shapes) {
-      return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
-       xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
-       xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-<p:cSld><p:bg><p:bgPr>${solidFill(bgHex)}<a:effectLst/></p:bgPr></p:bg>
-<p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
-<p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
-${shapes}
-</p:spTree></p:cSld></p:sld>`;
-    }
-
-    function h1(text, col, sz=36) { return para(run(text, {sz, bold:true, col})); }
-    function h2(text, col, sz=16) { return para(run(text, {sz, col})); }
-    function label(text) { return para(run(text.toUpperCase(), {sz:9, col:KRAFT, spc:300})); }
-    function body(text, col=DIM, sz=12) { return para(run(text, {sz, col})); }
-
-    // ── Build 7 slides ────────────────────────────────────────────────────────
     const stats = deck.roe_stats || [];
     const merch = deck.merchandise || [];
-    const steps = (deck.next_steps||[]).map(s=>typeof s==='string'?{action:s,date:'',owner:''}:s);
-    const hl1 = (deck.signage?.headline_1 || 'Feel The Difference').toUpperCase();
-    const hl2 = (deck.signage?.headline_2 || 'Make It Memorable').toUpperCase();
+    const steps = (deck.next_steps||[]).map(st=>typeof st==='string'?{action:st,date:'',owner:''}:st);
 
-    // S1 — Cover
-    const s1 = slide(RAISIN, [
-      rect(2,0,0,13.33,0.06,KRAFT),
-      textBox(3,0.7,0.5,6,0.5, para([run('BRAND REVOLUTION', {sz:13,col:WHITE,bold:true,spc:400})])),
-      textBox(4,0.7,1.4,9,0.4, label('Brand Activation Proposal')),
-      textBox(5,0.7,1.9,10,1.4, h1(clientName.toUpperCase(), WHITE, 48)),
-      textBox(6,0.7,3.4,9,0.8, h2(event.event_name, KRAFT, 24)),
-      rect(7,0.7,4.45,1.8,0.05,KRAFT),
-      textBox(8,0.7,4.65,8,0.8, body(deck.roe_headline||'', 'C8BAB0', 14)),
-      textBox(9,0.7,6.5,9,0.4, body('Event: '+event.event_date+'   |   Industry: '+industry, MUTED, 10)),
-      textBox(10,12,6.8,1.1,0.4, para(run('01', {sz:10, col:'3A3030'}), 'r')),
-    ].join(''));
+    // ── Slide 01 — Cover ──────────────────────────────────────────────────────
+    { const s = pres.addSlide();
+      bg(s, RAISIN); kbar(s, 0, 0.05);
+      s.addText([{text:'BRAND ',options:{bold:true,color:WHITE}},{text:'REVOLUTION',options:{color:KRAFT}}],
+        {x:0.7,y:0.5,w:6,h:0.45,fontSize:13,fontFace:'Calibri',charSpacing:5});
+      s.addText('Brand Activation Proposal',{x:0.7,y:1.05,w:9,h:0.35,fontSize:10,fontFace:'Calibri',color:KRAFT,charSpacing:4});
+      s.addText(clientName.toUpperCase(),{x:0.7,y:1.55,w:11,h:1.6,fontSize:60,fontFace:'Calibri',bold:true,color:WHITE,shrinkText:true});
+      s.addText(event.event_name,{x:0.7,y:3.2,w:10,h:0.8,fontSize:26,fontFace:'Calibri',color:KRAFT,shrinkText:true});
+      rule(s,0.7,4.15,1.8);
+      s.addText(deck.roe_headline||'',{x:0.7,y:4.35,w:8,h:0.9,fontSize:15,fontFace:'Calibri',color:'C8BAB0',italic:true,shrinkText:true});
+      s.addText(`Event: ${event.event_date}   |   Industry: ${industry}`,
+        {x:0.7,y:6.55,w:9,h:0.35,fontSize:10,fontFace:'Calibri',color:MUTED});
+      slNum(s,1); }
 
-    // S2 — ROE
-    const s2 = slide('1a1618', [
-      textBox(2,0.6,0.5,7,0.4, label('Return on Emotion®')),
-      textBox(3,0.6,0.95,5.5,1.8, para(run('The Human\nOpportunity', {sz:36,bold:true,col:WHITE}))),
-      rect(4,0.6,2.85,1.2,0.05,KRAFT),
-      textBox(5,0.6,3.05,5.5,1.3, body(deck.roe_insight||'','C8BAB0',12)),
-      textBox(6,0.6,4.55,2.5,0.8, h1(stats[0]?.num||'', KRAFT, 44)),
-      textBox(7,0.6,5.35,3.5,0.4, body(stats[0]?.label||'', MUTED, 10)),
-      textBox(8,3.8,4.55,2.5,0.8, h1(stats[1]?.num||'', KRAFT, 44)),
-      textBox(9,3.8,5.35,3.5,0.4, body(stats[1]?.label||'', MUTED, 10)),
-      rect(10,7.1,0,6.2,7.5,'140E0F'),
-      textBox(11,7.5,1.8,5.4,2.2, para(run('Human connection is at\nthe heart of every\ngreat brand moment.', {sz:22,bold:true,col:WHITE}))),
-      textBox(12,7.5,4.2,5.4,1.2, body('Every handshake. Every shared moment.\nEvery conversation that builds trust.','CBBFB8',12)),
-      textBox(13,12,6.8,1.1,0.4, para(run('02',{sz:10,col:'3A3030'}),'r')),
-    ].join(''));
+    // ── Slide 02 — ROE ────────────────────────────────────────────────────────
+    { const s = pres.addSlide();
+      bg(s,'1a1618');
+      // Left panel
+      eb(s,'Return on Emotion®',0.6,0.5);
+      s.addText('The Human\nOpportunity',{x:0.6,y:0.95,w:5.8,h:1.9,fontSize:38,fontFace:'Calibri',bold:true,color:WHITE,valign:'top'});
+      rule(s,0.6,2.95,1.2);
+      s.addText(deck.roe_insight||'',{x:0.6,y:3.15,w:5.8,h:1.4,fontSize:12,fontFace:'Calibri',color:'C8BAB0',shrinkText:true});
+      if(stats[0]){ s.addText(stats[0].num,{x:0.6,y:4.75,w:2.8,h:0.85,fontSize:48,fontFace:'Calibri',bold:true,color:KRAFT});
+        s.addText(stats[0].label,{x:0.6,y:5.6,w:3.5,h:0.4,fontSize:10,fontFace:'Calibri',color:MUTED,shrinkText:true}); }
+      if(stats[1]){ s.addText(stats[1].num,{x:3.8,y:4.75,w:2.8,h:0.85,fontSize:48,fontFace:'Calibri',bold:true,color:KRAFT});
+        s.addText(stats[1].label,{x:3.8,y:5.6,w:3.5,h:0.4,fontSize:10,fontFace:'Calibri',color:MUTED,shrinkText:true}); }
+      // Right dark panel
+      s.addShape(pres.ShapeType.rect,{x:7.1,y:0,w:6.23,h:7.5,fill:{color:'140E0F'},line:{type:'none'}});
+      s.addText('Human connection is at the\nheart of every great\nbrand moment.',
+        {x:7.5,y:1.8,w:5.5,h:2.4,fontSize:24,fontFace:'Calibri',bold:true,color:WHITE,valign:'top'});
+      s.addText('Every handshake. Every shared moment.\nEvery conversation that builds trust.',
+        {x:7.5,y:4.4,w:5.5,h:1.2,fontSize:13,fontFace:'Calibri',color:'CBBFB8'});
+      kbar(s,7.44,0.06); slNum(s,2); }
 
-    // S3 — Merchandise
-    const colW = 3.7;
-    const s3shapes = [
-      textBox(2,0.6,0.35,7,0.4, label('Merchandise Programme')),
-      textBox(3,0.6,0.8,11,0.9, h1('Products That Create Connection', WHITE, 30)),
-      rect(4,0.6,1.8,1.2,0.05,KRAFT),
-      ...merch.slice(0,3).flatMap((m,ii) => {
-        const cx = 0.6 + ii*(colW+0.27);
-        const base = 20 + ii*20;
-        return [
-          rect(base,cx,2.05,colW,4.9,R2),
-          rect(base+1,cx,2.05,colW,0.05,KRAFT),
-          textBox(base+2,cx+0.15,2.12,colW-0.3,0.35, label('Merchandise 0'+(ii+1))),
-          textBox(base+3,cx+0.15,2.5,colW-0.3,0.65, h1(m.title||'', WHITE, 16)),
-          rect(base+4,cx+0.15,3.2,colW-0.3,0.03,R2),
-          textBox(base+5,cx+0.15,3.28,colW-0.3,2.0, body(m.description||'','C0B0A8',11)),
-          rect(base+6,cx+0.15,5.6,colW-0.3,1.0,R2,{line:KRAFT,lineW:6350}),
-          textBox(base+7,cx+0.15,5.6,colW-0.3,1.0, para(run(clientName.toUpperCase().slice(0,14),{sz:14,bold:true,col:KRAFT,spc:200}),'ctr')),
-        ];
-      }),
-      textBox(80,12,6.8,1.1,0.4, para(run('03',{sz:10,col:'3A3030'}),'r')),
-    ];
-    const s3 = slide(RAISIN, s3shapes.join(''));
+    // ── Slide 03 — Merchandise ────────────────────────────────────────────────
+    { const s = pres.addSlide();
+      bg(s,RAISIN);
+      eb(s,'Merchandise Programme',0.6,0.35);
+      s.addText('Products That Create Connection',{x:0.6,y:0.78,w:12,h:0.85,fontSize:32,fontFace:'Calibri',bold:true,color:WHITE});
+      rule(s,0.6,1.72,1.2);
+      const colW=3.8;
+      merch.slice(0,3).forEach((m,i)=>{
+        const cx=0.6+i*(colW+0.22);
+        s.addShape(pres.ShapeType.rect,{x:cx,y:2.0,w:colW,h:5.05,fill:{color:R2},line:{color:'4A3C30',width:1}});
+        s.addShape(pres.ShapeType.rect,{x:cx,y:2.0,w:colW,h:0.05,fill:{color:KRAFT},line:{type:'none'}});
+        s.addText('Merchandise 0'+(i+1),{x:cx+0.15,y:2.1,w:colW-0.3,h:0.32,fontSize:9,fontFace:'Calibri',bold:true,color:KRAFT,charSpacing:2});
+        s.addText(m.title||'',{x:cx+0.15,y:2.45,w:colW-0.3,h:0.6,fontSize:15,fontFace:'Calibri',bold:true,color:WHITE,shrinkText:true});
+        s.addShape(pres.ShapeType.rect,{x:cx+0.15,y:3.1,w:colW-0.3,h:0.03,fill:{color:'4A3C30'},line:{type:'none'}});
+        s.addText(m.description||'',{x:cx+0.15,y:3.18,w:colW-0.3,h:2.1,fontSize:11,fontFace:'Calibri',color:DIM,valign:'top',shrinkText:true});
+        s.addShape(pres.ShapeType.rect,{x:cx+0.15,y:5.6,w:colW-0.3,h:1.05,fill:{color:'2C2420'},line:{color:KRAFT,width:1}});
+        s.addText(clientName.toUpperCase().slice(0,16),{x:cx+0.15,y:5.6,w:colW-0.3,h:1.05,fontSize:14,fontFace:'Calibri',bold:true,color:KRAFT,align:'center',valign:'middle',charSpacing:2});
+      });
+      slNum(s,3); }
 
-    // S4 — Trade Stand
-    const s4 = slide(DARK, [
-      rect(2,0,0,13.33,4.1,'140E0F'),
-      rect(3,0,4.1,13.33,0.05,KRAFT),
-      textBox(4,0.6,0.45,7,0.4, label('Trade Stand Concept')),
-      textBox(5,0.6,0.9,9,1.1, h1(deck.booth_concept?.title||'Booth Concept', WHITE, 38)),
-      rect(6,4.3,1.75,4.7,1.8,R2,{line:KRAFT,lineW:6350}),
-      textBox(7,4.3,1.75,4.7,1.8, para(run(clientName.toUpperCase().slice(0,18),{sz:28,bold:true,col:WHITE,spc:300}),'ctr')),
-      rect(8,0.6,4.35,1.2,0.05,KRAFT),
-      textBox(9,0.6,4.5,7.8,2.2, body(deck.booth_concept?.description||'','C0B0A8',12)),
-      textBox(10,9.1,4.4,4,0.4, para(run('Stand highlights',{sz:10,bold:true,col:KRAFT,spc:200}))),
-      textBox(11,9.1,4.95,3.9,2.0, ['Branded back wall panel','Interactive display pods','Front-of-house counter','Experiential zone'].map(pt=>body('• '+pt,'C0B0A8',11)).join('')),
-      textBox(12,12,6.8,1.1,0.4, para(run('04',{sz:10,col:'3A3030'}),'r')),
-    ].join(''));
+    // ── Slide 04 — Trade Stand ────────────────────────────────────────────────
+    { const s = pres.addSlide();
+      bg(s,'0f0e0c');
+      s.addShape(pres.ShapeType.rect,{x:0,y:0,w:13.33,h:4.1,fill:{color:'140E0F'},line:{type:'none'}});
+      kbar(s,4.1,0.05);
+      eb(s,'Trade Stand Concept',0.6,0.45);
+      s.addText(deck.booth_concept?.title||'Booth Concept',{x:0.6,y:0.88,w:9,h:1.1,fontSize:40,fontFace:'Calibri',bold:true,color:WHITE,shrinkText:true});
+      s.addShape(pres.ShapeType.rect,{x:4.4,y:1.72,w:4.5,h:1.85,fill:{color:R2},line:{color:KRAFT,width:1}});
+      s.addText(clientName.toUpperCase().slice(0,18),{x:4.4,y:1.72,w:4.5,h:1.85,fontSize:28,fontFace:'Calibri',bold:true,color:WHITE,align:'center',valign:'middle',charSpacing:3,shrinkText:true});
+      rule(s,0.6,4.35,1.2);
+      s.addText(deck.booth_concept?.description||'',{x:0.6,y:4.55,w:8,h:2.2,fontSize:12,fontFace:'Calibri',color:DIM,valign:'top',shrinkText:true});
+      s.addText('Stand highlights',{x:9.2,y:4.35,w:3.8,h:0.38,fontSize:10,fontFace:'Calibri',bold:true,color:KRAFT,charSpacing:2});
+      ['Branded back wall panel','Interactive display pods','Front-of-house counter','Experiential activation zone'].forEach((pt,i)=>{
+        s.addText('• '+pt,{x:9.2,y:4.9+i*0.5,w:3.8,h:0.42,fontSize:12,fontFace:'Calibri',color:DIM});});
+      slNum(s,4); }
 
-    // S5 — Signage
-    const s5 = slide(DARK, [
-      rect(2,0,0,6.0,7.5,'180E10'),
-      rect(3,0,0,6.0,0.05,KRAFT),
-      textBox(4,0.5,0.9,5.0,2.2, h1(hl1, WHITE, 40)),
-      rect(5,0.5,3.1,5.0,0.04,KRAFT),
-      textBox(6,0.5,3.25,5.0,1.2, h1(hl2, KRAFT, 26)),
-      rect(7,0.5,5.45,5.0,1.15,R2,{line:KRAFT,lineW:6350}),
-      textBox(8,0.5,5.45,5.0,1.15, para(run(clientName.toUpperCase().slice(0,16),{sz:20,bold:true,col:KRAFT,spc:300}),'ctr')),
-      textBox(9,6.5,0.65,6.2,0.4, label('Signage & Creative Direction')),
-      textBox(10,6.5,1.1,6.2,1.5, h1(deck.signage?.title||'Signage Concept', WHITE, 32)),
-      rect(11,6.5,2.65,1.2,0.05,KRAFT),
-      textBox(12,6.5,2.85,6.2,2.2, body(deck.signage?.description||'','C0B0A8',12)),
-      textBox(13,12,6.8,1.1,0.4, para(run('05',{sz:10,col:'3A3030'}),'r')),
-    ].join(''));
+    // ── Slide 05 — Signage ────────────────────────────────────────────────────
+    { const s = pres.addSlide();
+      bg(s,'0f0e0c');
+      s.addShape(pres.ShapeType.rect,{x:0,y:0,w:6.1,h:7.5,fill:{color:'180E10'},line:{type:'none'}});
+      kbar(s,0,0.05);
+      s.addText((deck.signage?.headline_1||'Feel The Difference').toUpperCase(),
+        {x:0.5,y:0.9,w:5.1,h:2.1,fontSize:48,fontFace:'Calibri',bold:true,color:WHITE,valign:'top',shrinkText:true});
+      s.addShape(pres.ShapeType.rect,{x:0.5,y:3.05,w:5.1,h:0.04,fill:{color:KRAFT},line:{type:'none'}});
+      s.addText((deck.signage?.headline_2||'Make It Memorable').toUpperCase(),
+        {x:0.5,y:3.18,w:5.1,h:1.2,fontSize:30,fontFace:'Calibri',color:KRAFT,valign:'top',shrinkText:true});
+      s.addShape(pres.ShapeType.rect,{x:0.5,y:5.45,w:5.1,h:1.2,fill:{color:R2},line:{color:KRAFT,width:1}});
+      s.addText(clientName.toUpperCase().slice(0,16),{x:0.5,y:5.45,w:5.1,h:1.2,fontSize:20,fontFace:'Calibri',bold:true,color:KRAFT,align:'center',valign:'middle',charSpacing:3,shrinkText:true});
+      eb(s,'Signage & Creative Direction',6.5,0.65);
+      s.addText(deck.signage?.title||'Signage Concept',{x:6.5,y:1.08,w:6.3,h:1.5,fontSize:34,fontFace:'Calibri',bold:true,color:WHITE,valign:'top',shrinkText:true});
+      rule(s,6.5,2.65,1.2);
+      s.addText(deck.signage?.description||'',{x:6.5,y:2.85,w:6.3,h:2.5,fontSize:13,fontFace:'Calibri',color:DIM,valign:'top',shrinkText:true});
+      slNum(s,5); }
 
-    // S6 — Hero Activation
-    const s6 = slide(DARK, [
-      rect(2,0,0,5.8,7.5,'160A0C'),
-      rect(3,0,0,5.8,0.05,KRAFT),
-      // Concentric ovals for network visual
-      ...[1.8,1.4,1.0,0.6].map((r,ii)=>rect(10+ii,2.9-r,3.75-r*0.75,r*2,r*1.5,DARK,{line:KRAFT,lineW:Math.round(6350*(1-ii*0.2))})),
-      rect(14,2.6,3.55,0.6,0.44,KRAFT),
-      textBox(15,2.6,3.55,0.6,0.44, para(run(clientInitials,{sz:11,bold:true,col:RAISIN}),'ctr')),
-      textBox(16,6.3,0.65,6.4,0.4, label('Hero Brand Activation')),
-      textBox(17,6.3,1.1,6.4,1.5, h1(deck.hero_activation?.title||'Hero Activation', WHITE, 34)),
-      rect(18,6.3,2.7,1.2,0.05,KRAFT),
-      textBox(19,6.3,2.9,6.4,3.5, body(deck.hero_activation?.description||'','C0B0A8',12)),
-      textBox(20,12,6.8,1.1,0.4, para(run('06',{sz:10,col:'3A3030'}),'r')),
-    ].join(''));
+    // ── Slide 06 — Hero Activation ────────────────────────────────────────────
+    { const s = pres.addSlide();
+      bg(s,'0f0e0c');
+      s.addShape(pres.ShapeType.rect,{x:0,y:0,w:5.9,h:7.5,fill:{color:'160A0C'},line:{type:'none'}});
+      kbar(s,0,0.05);
+      // Network rings
+      [[2.95,3.75,1.8,1.35],[2.95,3.75,1.35,1.0],[2.95,3.75,0.9,0.68],[2.95,3.75,0.5,0.38]].forEach(([cx,cy,rx,ry],i)=>{
+        s.addShape(pres.ShapeType.ellipse,{x:cx-rx,y:cy-ry,w:rx*2,h:ry*2,fill:{type:'none'},line:{color:KRAFT,width:1,transparency:60+i*8}});});
+      s.addShape(pres.ShapeType.ellipse,{x:2.65,y:3.55,w:0.6,h:0.44,fill:{color:KRAFT},line:{type:'none'}});
+      s.addText(clientInitials,{x:2.65,y:3.55,w:0.6,h:0.44,fontSize:11,fontFace:'Calibri',bold:true,color:RAISIN,align:'center',valign:'middle'});
+      eb(s,'Hero Brand Activation',6.3,0.65);
+      s.addText(deck.hero_activation?.title||'Hero Activation',{x:6.3,y:1.08,w:6.6,h:1.5,fontSize:36,fontFace:'Calibri',bold:true,color:WHITE,valign:'top',shrinkText:true});
+      rule(s,6.3,2.65,1.2);
+      s.addText(deck.hero_activation?.description||'',{x:6.3,y:2.85,w:6.6,h:3.8,fontSize:13,fontFace:'Calibri',color:DIM,valign:'top',shrinkText:true});
+      slNum(s,6); }
 
-    // S7 — Next Steps
-    const s7shapes = [
-      rect(2,7.1,0,6.2,7.5,'27201F'),
-      textBox(3,0.6,0.5,5.5,0.4, label('Next Steps')),
-      textBox(4,0.6,0.95,5.5,1.6, para(run("Let's Make\nIt Happen",{sz:38,bold:true,col:WHITE}))),
-      rect(5,0.6,2.7,1.2,0.05,KRAFT),
-      ...steps.flatMap((st,ii)=>{
-        const sy = 3.0 + ii*1.22;
-        const base2 = 30+ii*5;
-        return [
-          rect(base2,0.6,sy,0.18,0.18,KRAFT),
-          ...(ii<steps.length-1?[rect(base2+1,0.68,sy+0.18,0.02,1.02,KRAFT)]:[]),
-          textBox(base2+2,0.95,sy+(st.date?0:0.02),5.2,1.15, [
-            st.date?label(st.date):'',
-            body(st.action,'CBBFB8',12),
-            st.owner?body(st.owner,MUTED,10):''
-          ].join('')),
-          textBox(base2+3,5.1,sy-0.05,0.85,0.55, para(run('0'+(ii+1),{sz:24,bold:true,col:'3A3030'}),'r')),
-        ];
-      }),
-      textBox(60,7.5,1.4,5.4,0.4, label('Ready to begin?')),
-      textBox(61,7.5,2.0,5.4,2.8, body("Every great brand moment starts with a conversation.\n\nLet's build something your audience will never forget.",'CBBFB8',16)),
-      rect(62,7.5,5.05,3.6,0.65,KRAFT),
-      textBox(63,7.5,5.05,3.6,0.65, para(run('Start the conversation →',{sz:13,bold:true,col:RAISIN}),'ctr')),
-      textBox(64,7.5,6.5,5.4,0.35, para(run('BRAND REVOLUTION',{sz:10,bold:true,col:'5A4A42',spc:400}))),
-      textBox(65,7.5,6.85,5.4,0.3, body('Return on Emotion® · '+new Date().getFullYear(),'4A3838',9)),
-      textBox(66,12,6.8,1.1,0.4, para(run('07',{sz:10,col:'3A3030'}),'r')),
-    ];
-    const s7 = slide(RAISIN, s7shapes.join(''));
+    // ── Slide 07 — Next Steps ─────────────────────────────────────────────────
+    { const s = pres.addSlide();
+      bg(s,RAISIN); kbar(s,0,0.05);
+      s.addShape(pres.ShapeType.rect,{x:7.1,y:0,w:6.23,h:7.5,fill:{color:'27201F'},line:{type:'none'}});
+      eb(s,'Next Steps',0.6,0.5);
+      s.addText("Let's Make\nIt Happen",{x:0.6,y:0.93,w:5.8,h:1.7,fontSize:40,fontFace:'Calibri',bold:true,color:WHITE,valign:'top'});
+      rule(s,0.6,2.7,1.2);
+      steps.forEach((st,i)=>{
+        const sy=3.05+i*1.2;
+        s.addShape(pres.ShapeType.ellipse,{x:0.6,y:sy,w:0.18,h:0.18,fill:{color:KRAFT},line:{type:'none'}});
+        if(i<steps.length-1) s.addShape(pres.ShapeType.line,{x:0.685,y:sy+0.18,w:0,h:1.0,line:{color:KRAFT,width:1,transparency:55}});
+        const texts=[];
+        if(st.date) texts.push({text:st.date.toUpperCase()+'\n',options:{fontSize:9,bold:true,color:KRAFT,breakLine:false}});
+        texts.push({text:(st.action||'')+'\n',options:{fontSize:12,color:'CBBFB8',breakLine:false}});
+        if(st.owner) texts.push({text:st.owner,options:{fontSize:10,color:MUTED}});
+        s.addText(texts,{x:0.95,y:sy,w:5.3,h:1.1,fontFace:'Calibri',valign:'top',shrinkText:true});
+        s.addText('0'+(i+1),{x:5.15,y:sy-0.05,w:0.75,h:0.55,fontSize:24,fontFace:'Calibri',bold:true,color:'3A3030',align:'right'});
+      });
+      // CTA panel
+      s.addText('Ready to begin?',{x:7.5,y:1.4,w:5.5,h:0.38,fontSize:10,fontFace:'Calibri',bold:true,color:MUTED,charSpacing:3});
+      s.addText("Every great brand moment starts with a conversation.\n\nLet's build something your audience will never forget.",
+        {x:7.5,y:1.95,w:5.5,h:2.9,fontSize:16,fontFace:'Calibri',color:'CBBFB8',valign:'top'});
+      s.addShape(pres.ShapeType.rect,{x:7.5,y:5.05,w:3.6,h:0.65,fill:{color:KRAFT},line:{type:'none'}});
+      s.addText('Start the conversation \u2192',{x:7.5,y:5.05,w:3.6,h:0.65,fontSize:13,fontFace:'Calibri',bold:true,color:RAISIN,align:'center',valign:'middle'});
+      s.addText('BRAND REVOLUTION',{x:7.5,y:6.55,w:5.5,h:0.35,fontSize:10,fontFace:'Calibri',bold:true,color:'5A4A42',charSpacing:4});
+      s.addText('Return on Emotion\u00ae \u00b7 '+new Date().getFullYear(),{x:7.5,y:6.9,w:5.5,h:0.3,fontSize:9,fontFace:'Calibri',color:'4A3838'});
+      slNum(s,7); }
 
-    const slides = [s1,s2,s3,s4,s5,s6,s7];
+    const fileName = clientName.replace(/[^a-z0-9]/gi,'_')+'_Brand_Activation.pptx';
+    await pres.writeFile({ fileName });
 
-    // ── Assemble the PPTX ZIP ─────────────────────────────────────────────────
-    const zip = new MiniZip();
-
-    // [Content_Types].xml
-    zip.add('[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-  <Default Extension="xml" ContentType="application/xml"/>
-  <Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>
-  <Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>
-  <Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/>
-  ${slides.map((_,i)=>`<Override PartName="/ppt/slides/slide${i+1}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`).join('\n  ')}
-</Types>`);
-
-    zip.add('_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>
-</Relationships>`);
-
-    // Minimal slide master
-    const masterXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:sldMaster xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-<p:cSld><p:bg><p:bgPr><a:solidFill><a:srgbClr val="221E1F"/></a:solidFill></p:bgPr></p:bg><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr></p:spTree></p:cSld>
-<p:txStyles><p:titleStyle><a:lvl1pPr><a:defRPr lang="en-GB" sz="2800" b="1"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:latin typeface="Calibri"/></a:defRPr></a:lvl1pPr></p:titleStyle><p:bodyStyle><a:lvl1pPr><a:defRPr lang="en-GB" sz="1400"><a:solidFill><a:srgbClr val="E0DCDA"/></a:solidFill><a:latin typeface="Calibri"/></a:defRPr></a:lvl1pPr></p:bodyStyle><p:otherStyle><a:lvl1pPr><a:defRPr lang="en-GB"><a:latin typeface="Calibri"/></a:defRPr></a:lvl1pPr></p:otherStyle></p:txStyles>
-<p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rId1"/></p:sldLayoutIdLst></p:sldMaster>`;
-
-    zip.add('ppt/slideMasters/slideMaster1.xml', masterXml);
-    zip.add('ppt/slideMasters/_rels/slideMaster1.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
-</Relationships>`);
-
-    // Minimal slide layout
-    zip.add('ppt/slideLayouts/slideLayout1.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:sldLayout xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" type="blank">
-<p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr></p:spTree></p:cSld></p:sldLayout>`);
-
-    zip.add('ppt/slideLayouts/_rels/slideLayout1.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/>
-</Relationships>`);
-
-    // Slides
-    slides.forEach((xml, idx) => {
-      zip.add(`ppt/slides/slide${idx+1}.xml`, xml);
-      zip.add(`ppt/slides/_rels/slide${idx+1}.xml.rels`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
-</Relationships>`);
-    });
-
-    // Presentation
-    const slideIds = slides.map((_,i)=>`<p:sldId id="${256+i}" r:id="rId${i+3}"/>`).join('\n    ');
-    const slideRels = slides.map((_,i)=>`  <Relationship Id="rId${i+3}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide${i+1}.xml"/>`).join('\n');
-
-    zip.add('ppt/presentation.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:presentation xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" saveSubsetFonts="1">
-<p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst>
-<p:sldIdLst>${slideIds}</p:sldIdLst>
-<p:sldSz cx="${W}" cy="${H}" type="screen16x9"/>
-<p:notesSz cx="${H}" cy="${W}"/>
-</p:presentation>`);
-
-    zip.add('ppt/_rels/presentation.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="slideMasters/slideMaster1.xml"/>
-  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml"/>
-${slideRels}
-</Relationships>`);
-
-    zip.add('ppt/theme/theme1.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="EventIntel">
-<a:themeElements><a:clrScheme name="EventIntel">
-<a:dk1><a:srgbClr val="221E1F"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1>
-<a:dk2><a:srgbClr val="C49A6C"/></a:dk2><a:lt2><a:srgbClr val="E0DCDA"/></a:lt2>
-<a:accent1><a:srgbClr val="C49A6C"/></a:accent1><a:accent2><a:srgbClr val="79C099"/></a:accent2>
-<a:accent3><a:srgbClr val="2C2728"/></a:accent3><a:accent4><a:srgbClr val="332D2E"/></a:accent4>
-<a:accent5><a:srgbClr val="3D8B6C"/></a:accent5><a:accent6><a:srgbClr val="364B46"/></a:accent6>
-<a:hlink><a:srgbClr val="C49A6C"/></a:hlink><a:folHlink><a:srgbClr val="A07848"/></a:folHlink>
-</a:clrScheme>
-<a:fontScheme name="EventIntel"><a:majorFont><a:latin typeface="Calibri"/></a:majorFont><a:minorFont><a:latin typeface="Calibri"/></a:minorFont></a:fontScheme>
-<a:fmtScheme name="EventIntel"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln w="9525"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln w="9525"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln w="9525"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme>
-</a:themeElements></a:theme>`);
-
-    // Download
-    const bytes = zip.build();
-    const blob = new Blob([bytes], {type:'application/vnd.openxmlformats-officedocument.presentationml.presentation'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = (clientName.replace(/[^a-z0-9]/gi,'_') + '_Brand_Activation.pptx');
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-
-    if (btn) { btn.textContent = '✓ Downloaded'; btn.style.background='var(--aqua)'; btn.style.color=RAISIN; }
-    setTimeout(()=>{ if(btn){ btn.textContent='Download PowerPoint'; btn.style.background=''; btn.style.color=''; btn.disabled=false; }}, 3000);
+    if(btn){ btn.textContent='\u2713 Downloaded'; btn.style.background='var(--aqua)'; btn.style.color='var(--raisin)'; }
+    setTimeout(()=>{ if(btn){ btn.textContent='Download PowerPoint'; btn.style.background=''; btn.style.color=''; btn.disabled=false; }},3000);
 
   } catch(err) {
-    console.error('PPTX error:', err);
-    if (btn) { btn.textContent = 'Error — try again'; btn.disabled = false; }
+    console.error('PPTX error:',err);
+    if(btn){ btn.textContent='Error \u2014 try again'; btn.disabled=false; }
+    showError('PowerPoint export failed: '+err.message);
   }
 }
 </script>
