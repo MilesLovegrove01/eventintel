@@ -914,6 +914,7 @@
     padding: 80px 10%;
     border-bottom: 1px solid rgba(196,154,108,0.1);
     position: relative;
+    isolation: isolate;
   }
   .deck-slide.cover {
     background: #0f0e0c;
@@ -923,6 +924,30 @@
   .deck-slide.dark { background: #0f0e0c; }
   .deck-slide.mid  { background: #1a1618; }
   .deck-slide.light { background: #221E1F; }
+
+  /* ── Proposal-style motifs: tiled wordmark + dashed-gold accents ── */
+  .deck-slide::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%221440%22%20height%3D%22810%22%20viewBox%3D%220%200%201440%20810%22%3E%3Ctext%20x%3D%22-40%22%20y%3D%2270%22%20font-family%3D%22Arial%2CHelvetica%2Csans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2274%22%20letter-spacing%3D%226%22%20fill%3D%22%23ffffff%22%20fill-opacity%3D%220.028%22%3EBRAND%20REVOLUTION%20BRAND%20REVOLUTION%3C%2Ftext%3E%3Ctext%20x%3D%22-180%22%20y%3D%22156%22%20font-family%3D%22Arial%2CHelvetica%2Csans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2274%22%20letter-spacing%3D%226%22%20fill%3D%22%23ffffff%22%20fill-opacity%3D%220.028%22%3EBRAND%20REVOLUTION%20BRAND%20REVOLUTION%3C%2Ftext%3E%3Ctext%20x%3D%22-40%22%20y%3D%22242%22%20font-family%3D%22Arial%2CHelvetica%2Csans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2274%22%20letter-spacing%3D%226%22%20fill%3D%22%23ffffff%22%20fill-opacity%3D%220.028%22%3EBRAND%20REVOLUTION%20BRAND%20REVOLUTION%3C%2Ftext%3E%3Ctext%20x%3D%22-180%22%20y%3D%22328%22%20font-family%3D%22Arial%2CHelvetica%2Csans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2274%22%20letter-spacing%3D%226%22%20fill%3D%22%23ffffff%22%20fill-opacity%3D%220.028%22%3EBRAND%20REVOLUTION%20BRAND%20REVOLUTION%3C%2Ftext%3E%3Ctext%20x%3D%22-40%22%20y%3D%22414%22%20font-family%3D%22Arial%2CHelvetica%2Csans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2274%22%20letter-spacing%3D%226%22%20fill%3D%22%23ffffff%22%20fill-opacity%3D%220.028%22%3EBRAND%20REVOLUTION%20BRAND%20REVOLUTION%3C%2Ftext%3E%3Ctext%20x%3D%22-180%22%20y%3D%22500%22%20font-family%3D%22Arial%2CHelvetica%2Csans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2274%22%20letter-spacing%3D%226%22%20fill%3D%22%23ffffff%22%20fill-opacity%3D%220.028%22%3EBRAND%20REVOLUTION%20BRAND%20REVOLUTION%3C%2Ftext%3E%3Ctext%20x%3D%22-40%22%20y%3D%22586%22%20font-family%3D%22Arial%2CHelvetica%2Csans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2274%22%20letter-spacing%3D%226%22%20fill%3D%22%23ffffff%22%20fill-opacity%3D%220.028%22%3EBRAND%20REVOLUTION%20BRAND%20REVOLUTION%3C%2Ftext%3E%3Ctext%20x%3D%22-180%22%20y%3D%22672%22%20font-family%3D%22Arial%2CHelvetica%2Csans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2274%22%20letter-spacing%3D%226%22%20fill%3D%22%23ffffff%22%20fill-opacity%3D%220.028%22%3EBRAND%20REVOLUTION%20BRAND%20REVOLUTION%3C%2Ftext%3E%3Ctext%20x%3D%22-40%22%20y%3D%22758%22%20font-family%3D%22Arial%2CHelvetica%2Csans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2274%22%20letter-spacing%3D%226%22%20fill%3D%22%23ffffff%22%20fill-opacity%3D%220.028%22%3EBRAND%20REVOLUTION%20BRAND%20REVOLUTION%3C%2Ftext%3E%3C%2Fsvg%3E");
+    background-size: cover;
+    background-position: center;
+    pointer-events: none;
+  }
+  .deck-slide.cover::after,
+  .deck-slide.dark::after {
+    content: "";
+    position: absolute;
+    top: 0; bottom: 0; left: 6%;
+    width: 300px;
+    z-index: -1;
+    background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2230%22%20height%3D%2220%22%20viewBox%3D%220%200%2030%2020%22%3E%3Crect%20x%3D%2214%22%20y%3D%220%22%20width%3D%221.6%22%20height%3D%2211%22%20fill%3D%22%23C49A6C%22%2F%3E%3C%2Fsvg%3E");
+    background-repeat: repeat;
+    opacity: 0.5;
+    pointer-events: none;
+  }
 
   .deck-eyebrow {
     font-family: var(--condensed);
@@ -995,6 +1020,11 @@
     text-transform: uppercase;
     color: var(--white);
     margin-bottom: 10px;
+  }
+  .deck-card-title::before {
+    content: "\203A  ";
+    color: var(--kraft);
+    font-weight: 700;
   }
   .deck-card-body {
     font-size: 13px;
@@ -1608,6 +1638,16 @@ async function pushToHubspot() {
   const log = document.getElementById('hs-log');
   if (log) { log.innerHTML = ''; log.style.display = 'block'; }
 
+  // Real HubSpot writes only happen when this runs inside Claude (where the
+  // HubSpot connector is brokered). Anywhere else, callClaude() falls back to
+  // Gemini, which only *describes* the actions — nothing is written.
+  const hsLive = window.location.href.indexOf('claude.ai') >= 0 ||
+                 window.location.href.indexOf('artifacts') >= 0 ||
+                 window.location.protocol === 'blob:';
+  if (!hsLive) {
+    hsLog('⚠ Demo mode — not connected to HubSpot. The steps below are simulated and are NOT written to your account.', 'err');
+  }
+
   const systemPrompt = `You are a HubSpot CRM assistant. Use the HubSpot MCP tools to complete the requested actions accurately. Always return a JSON summary of what was created.`;
 
   try {
@@ -1706,23 +1746,18 @@ No markdown, no explanation.`);
       );
     });
 
-    // ── Step 4: Summary + open-in-HubSpot buttons ────────────────────────────
-    hsLog(`<strong>Done.</strong> ${created} task${created === 1 ? '' : 's'} pushed to HubSpot.`, 'ok');
+    // ── Step 4: Summary + open-in-HubSpot button ────────────────────────────
+    hsLog(`<strong>${hsLive ? 'Done.' : 'Simulated.'}</strong> ${created} task${created === 1 ? '' : 's'} ${hsLive ? 'pushed to HubSpot.' : 'generated in demo mode (nothing was written to HubSpot).'}`, hsLive ? 'ok' : 'err');
 
-    const hsPortal = window._lastHsPortalId || '';
-    const tasksUrl   = hsPortal ? `https://app.hubspot.com/tasks/${hsPortal}/view/all` : 'https://app.hubspot.com/';
-    const companyUrl = (hsPortal && companyId) ? `https://app.hubspot.com/contacts/${hsPortal}/record/0-2/${companyId}` : '';
     if (log) {
       document.querySelectorAll('.hs-actions').forEach(e => e.remove());
       const actions = document.createElement('div');
       actions.className = 'hs-actions';
-      actions.innerHTML =
-        `<a class="btn-hs-open" href="${tasksUrl}" target="_blank" rel="noopener">View tasks in HubSpot ↗</a>` +
-        (companyUrl ? `<a class="btn-hs-open secondary" href="${companyUrl}" target="_blank" rel="noopener">Open ${companyName} record ↗</a>` : '');
+      actions.innerHTML = `<a class="btn-hs-open" href="https://app.hubspot.com/login/sso" target="_blank" rel="noopener">Log in to HubSpot ↗</a>`;
       log.insertAdjacentElement('afterend', actions);
     }
 
-    if (btn) { btn.textContent = '✓ Pushed to HubSpot'; btn.style.background = 'var(--aqua)'; btn.style.color = 'var(--raisin)'; }
+    if (btn) { btn.textContent = hsLive ? '✓ Pushed to HubSpot' : '✓ Simulated (demo)'; btn.style.background = 'var(--aqua)'; btn.style.color = 'var(--raisin)'; }
 
   } catch(err) {
     hsLog(`<strong>Error:</strong> ${err.message}`, 'err');
