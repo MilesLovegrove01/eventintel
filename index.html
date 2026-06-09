@@ -789,8 +789,12 @@
     text-transform: uppercase;
     color: var(--aqua);
     text-decoration: none;
+    background: transparent;
+    border: none;
     border-bottom: 1px solid rgba(121,192,153,0.4);
-    padding-bottom: 1px;
+    border-radius: 0;
+    padding: 0 0 1px;
+    cursor: pointer;
     transition: border-color 0.15s;
   }
   .deck-link:hover { border-color: var(--aqua); }
@@ -810,6 +814,46 @@
     transition: background 0.15s;
   }
   .btn-copy-link:hover { background: rgba(121,192,153,0.2); }
+
+  /* ── Per-card outreach actions (Add to HubSpot / Copy text) ── */
+  .btn-hs-card {
+    height: 34px;
+    padding: 0 14px;
+    background: #FF7A59;
+    color: #fff;
+    border: none;
+    border-radius: 2px;
+    font-family: var(--condensed);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+    white-space: nowrap;
+  }
+  .btn-hs-card:hover { background: #ff6040; }
+  .btn-hs-card:active { transform: scale(0.98); }
+
+  .btn-copy-text {
+    height: 34px;
+    padding: 0 14px;
+    background: transparent;
+    color: var(--kraft);
+    border: 1px solid rgba(196,154,108,0.4);
+    border-radius: 2px;
+    font-family: var(--condensed);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, transform 0.1s;
+    white-space: nowrap;
+  }
+  .btn-copy-text:hover { background: rgba(196,154,108,0.1); border-color: var(--kraft); }
+  .btn-copy-text:active { transform: scale(0.98); }
+  .btn-copy-text.copied { color: var(--aqua); border-color: rgba(121,192,153,0.4); }
 
   /* ── DECK VIEWER (full-screen presentation mode) ── */
   #deck-viewer {
@@ -1489,6 +1533,8 @@ function renderResults(d, rawName, rawUrl) {
         <div class="oc-rationale">${o.rationale || ''}</div>
         <div class="deck-row" id="deck-row-${i}">
           <button class="btn-deck" onclick="buildDeck(${i})" id="deck-btn-${i}">✦ Build Activation Deck</button>
+          <button class="btn-hs-card" onclick="openHubspot()">＋ Add to HubSpot</button>
+          <button class="btn-copy-text" onclick="copyOutreachText(${i}, this)">⧉ Copy text</button>
           <span class="deck-link-wrap" id="deck-link-${i}" style="display:none"></span>
         </div>
       </div>
@@ -1515,18 +1561,6 @@ function renderResults(d, rawName, rawUrl) {
         <div class="stat-pill"><span class="num">${d.stat_suggested || '—'}</span><span class="lbl">Suggested</span></div>
       </div>
     </div>
-
-    <div class="hs-bar">
-      <div class="hs-bar-left">
-        <div class="hs-icon">H</div>
-        <div class="hs-bar-text">
-          <div class="hs-title">Push to HubSpot</div>
-          <div class="hs-sub">Create a company record + ${(d.outreach_calendar || []).length} outreach tasks with due dates and pitch notes</div>
-        </div>
-      </div>
-      <button class="btn-hubspot" id="hs-btn" onclick="pushToHubspot()">Push to HubSpot →</button>
-    </div>
-    <div class="hs-log" id="hs-log"></div>
 
     <div class="intel-brief">${d.summary || ''}</div>
 
@@ -1629,141 +1663,61 @@ function parseOutreachDate(windowStr) {
   return isNaN(d) ? null : d.getTime();
 }
 
-async function pushToHubspot() {
-  if (!window._lastAnalysis) return;
-  const d = window._lastAnalysis;
-  const btn = document.getElementById('hs-btn');
-  if (btn) btn.disabled = true;
+// ── Per-outreach HubSpot + copy actions ──────────────────────────────────────
 
-  // Clear log
-  const log = document.getElementById('hs-log');
-  if (log) { log.innerHTML = ''; log.style.display = 'block'; }
-
-  // Real HubSpot writes only happen when this runs inside Claude (where the
-  // HubSpot connector is brokered). Anywhere else, callClaude() falls back to
-  // Gemini, which only *describes* the actions — nothing is written.
-  const hsLive = window.location.href.indexOf('claude.ai') >= 0 ||
-                 window.location.href.indexOf('artifacts') >= 0 ||
-                 window.location.protocol === 'blob:';
-  if (!hsLive) {
-    hsLog('⚠ Demo mode — not connected to HubSpot. The steps below are simulated and are NOT written to your account.', 'err');
-  }
-
-  const systemPrompt = `You are a HubSpot CRM assistant. Use the HubSpot MCP tools to complete the requested actions accurately. Always return a JSON summary of what was created.`;
-
-  try {
-    // ── Step 1: Find or create company ──────────────────────────────────────
-    hsLog(`Searching HubSpot for <strong>${d.company}</strong>…`, 'pending');
-
-    const searchResp = await callClaude(systemPrompt, `
-Search HubSpot for a company named exactly "${d.company}".
-If found, return its company ID.
-If not found, create a new company with:
-  - name: "${d.company}"
-  - industry: "${d.industry || ''}"
-  - website: "${window._lastUrl || ''}"
-  - description: "Event Intel profile: ${d.summary || ''}"
-
-Return ONLY valid JSON: { "action": "found"|"created", "companyId": "string", "companyName": "string", "portalId": "string" }
-Set "portalId" to the HubSpot account / portal (hub) ID number for this account.
-No markdown, no explanation.`);
-
-    const searchText = searchResp.content?.filter(b => b.type === 'text').map(b => b.text).join('') || '';
-    const cleanSearch = searchText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-    let companyResult;
-    try { companyResult = JSON.parse(cleanSearch); }
-    catch(e) { throw new Error('Could not parse company response from HubSpot.'); }
-
-    const { companyId, companyName, action, portalId } = companyResult;
-    window._lastHsCompanyId = companyId;
-    window._lastHsPortalId = portalId || '';
-    hsLogUpdate(
-      action === 'found'
-        ? `Found existing company <strong>${companyName}</strong> <span>(ID: ${companyId})</span>`
-        : `Created new company <strong>${companyName}</strong> <span>(ID: ${companyId})</span>`,
-      'ok'
-    );
-
-    // ── Step 2: Create tasks for each outreach window ────────────────────────
-    const nowYYYYMM = new Date().toISOString().slice(0, 7);
-    const outreach = (d.outreach_calendar || []).filter(o => {
-      const iso = o.event_date_iso || '';
-      if (iso && iso.match(/^\d{4}-\d{2}$/)) return iso > nowYYYYMM;
-      const parsed = o.event_date ? new Date(o.event_date + ' 1') : null;
-      if (parsed && !isNaN(parsed)) return parsed.toISOString().slice(0, 7) > nowYYYYMM;
-      return true;
-    });
-    if (outreach.length === 0) {
-      hsLog('No outreach events to push.', 'ok');
-      if (btn) btn.disabled = false;
-      return;
-    }
-
-    hsLog(`Creating ${outreach.length} outreach tasks…`, 'pending');
-
-    const taskDefs = outreach.map(o => ({
-      subject: `[Event Intel] ${o.event_name} — ${o.event_date}`,
-      body: `Priority: ${(o.priority || '').toUpperCase()}\n\nOutreach window: ${o.outreach_window}\n\nPitch: ${o.services_pitch}\n\nRationale: ${o.rationale}`,
-      dueDate: parseOutreachDate(o.outreach_window),
-      priority: o.priority === 'high' ? 'HIGH' : o.priority === 'medium' ? 'MEDIUM' : 'LOW'
-    }));
-
-    const taskResp = await callClaude(systemPrompt, `
-Create the following HubSpot tasks and associate each one with company ID "${companyId}":
-
-${JSON.stringify(taskDefs, null, 2)}
-
-For each task:
-- Set the subject exactly as provided
-- Set the body/notes exactly as provided
-- Set the due date from the dueDate field (Unix timestamp in milliseconds); if null, set due date to 30 days from now
-- Set priority as provided
-- Set task type to TODO
-- Associate with the company
-
-Return ONLY valid JSON:
-{
-  "tasks": [
-    { "subject": "string", "taskId": "string", "status": "created"|"failed" }
-  ],
-  "totalCreated": number
+// Opens HubSpot SSO login in a new tab so the user can create the task themselves.
+// Intentionally does NOT write anything to HubSpot.
+function openHubspot() {
+  window.open('https://app.hubspot.com/login/sso', '_blank', 'noopener');
 }
-No markdown, no explanation.`);
 
-    const taskText = taskResp.content?.filter(b => b.type === 'text').map(b => b.text).join('') || '';
-    const cleanTask = taskText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-    let taskResult;
-    try { taskResult = JSON.parse(cleanTask); }
-    catch(e) { throw new Error('Could not parse task response from HubSpot.'); }
+// Copies a single outreach listing as plain text, ready to paste into a HubSpot task.
+function copyOutreachText(idx, btn) {
+  const d = window._lastAnalysis;
+  if (!d || !d.outreach_calendar || !d.outreach_calendar[idx]) return;
+  const o = d.outreach_calendar[idx];
 
-    const created = taskResult.totalCreated || taskResult.tasks?.filter(t => t.status === 'created').length || 0;
-    hsLogUpdate(`Created <strong>${created} tasks</strong> linked to <strong>${companyName}</strong>`, 'ok');
+  const lines = [
+    `${o.event_name || ''}${o.event_date ? ' \u2014 ' + o.event_date : ''}`.trim(),
+    o.outreach_window ? `Outreach window: ${o.outreach_window}` : '',
+    o.priority ? `Priority: ${String(o.priority).toUpperCase()}` : '',
+    '',
+    o.services_pitch ? `Pitch: ${o.services_pitch}` : '',
+    o.rationale ? `Rationale: ${o.rationale}` : '',
+    '',
+    `Client: ${d.company || ''}`
+  ].filter(l => l !== null && l !== undefined);
 
-    // ── Step 3: Log each task ────────────────────────────────────────────────
-    (taskResult.tasks || []).forEach(t => {
-      hsLog(
-        `${t.status === 'created' ? '✓' : '✗'} <strong>${t.subject}</strong> <span>${t.status === 'created' ? `ID: ${t.taskId}` : 'failed'}</span>`,
-        t.status === 'created' ? 'ok' : 'err'
-      );
-    });
+  // Collapse to a clean block (keep intentional blank lines, drop empties at ends)
+  let text = lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 
-    // ── Step 4: Summary + open-in-HubSpot button ────────────────────────────
-    hsLog(`<strong>${hsLive ? 'Done.' : 'Simulated.'}</strong> ${created} task${created === 1 ? '' : 's'} ${hsLive ? 'pushed to HubSpot.' : 'generated in demo mode (nothing was written to HubSpot).'}`, hsLive ? 'ok' : 'err');
+  const done = () => {
+    if (!btn) return;
+    const orig = btn.textContent;
+    btn.classList.add('copied');
+    btn.textContent = '\u2713 Copied';
+    setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 2000);
+  };
 
-    if (log) {
-      document.querySelectorAll('.hs-actions').forEach(e => e.remove());
-      const actions = document.createElement('div');
-      actions.className = 'hs-actions';
-      actions.innerHTML = `<a class="btn-hs-open" href="https://app.hubspot.com/login/sso" target="_blank" rel="noopener">Log in to HubSpot ↗</a>`;
-      log.insertAdjacentElement('afterend', actions);
-    }
-
-    if (btn) { btn.textContent = hsLive ? '✓ Pushed to HubSpot' : '✓ Simulated (demo)'; btn.style.background = 'var(--aqua)'; btn.style.color = 'var(--raisin)'; }
-
-  } catch(err) {
-    hsLog(`<strong>Error:</strong> ${err.message}`, 'err');
-    if (btn) btn.disabled = false;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+  } else {
+    fallbackCopy(text, done);
   }
+}
+
+function fallbackCopy(text, cb) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    if (cb) cb();
+  } catch(e) { /* ignore */ }
 }
 // ── BUILD DECK ───────────────────────────────────────────────────────────────
 
@@ -1862,11 +1816,13 @@ async function buildDeck(idx) {
       window._currentDeck = { company: cc, event: ce, deck: cd };
 
       const shareUrl = await buildShareUrl(cc, ce, cd);
+      window._builtDecks = window._builtDecks || {};
+      window._builtDecks[idx] = { company: cc, event: ce, deck: cd, shareUrl };
       if (btn) { btn.classList.remove('generating'); btn.textContent = '✓ Deck Ready'; btn.style.color = 'var(--aqua)'; btn.style.borderColor = 'rgba(121,192,153,0.4)'; }
       if (linkWrap) {
         linkWrap.style.display = 'flex';
         linkWrap.innerHTML = `
-          <a class="deck-link" href="${shareUrl}" target="_blank">View presentation ↗</a>
+          <button class="deck-link" onclick="reopenDeck(${idx})">View presentation ↗</button>
           <button class="btn-copy-link" onclick="copyLink('${shareUrl}', this)">Copy link</button>
           <button class="btn-copy-link" style="color:var(--muted);border-color:var(--border-dim)" onclick="buildDeckFresh(${idx})">↺ Regenerate</button>`;
       }
@@ -1977,12 +1933,14 @@ Return ONLY this JSON. Keep headlines, labels, stats and titles SHORT; write the
 
     // Build shareable URL with compressed deck data embedded
     const shareUrl = await buildShareUrl(d, o, deck);
+    window._builtDecks = window._builtDecks || {};
+    window._builtDecks[idx] = { company: d, event: o, deck, shareUrl };
 
     if (btn) { btn.classList.remove('generating'); btn.textContent = '✓ Deck Ready'; btn.style.color = 'var(--aqua)'; btn.style.borderColor = 'rgba(121,192,153,0.4)'; }
     if (linkWrap) {
       linkWrap.style.display = 'flex';
       linkWrap.innerHTML = `
-        <a class="deck-link" href="${shareUrl}" target="_blank">View presentation ↗</a>
+        <button class="deck-link" onclick="reopenDeck(${idx})">View presentation ↗</button>
         <button class="btn-copy-link" onclick="copyLink('${shareUrl}', this)">Copy link</button>
         <button class="btn-copy-link" style="color:var(--muted);border-color:var(--border-dim)" onclick="buildDeckFresh(${idx})">↺ Regenerate</button>`;
     }
@@ -2006,6 +1964,43 @@ function copyLink(url, btn) {
 function closeDeck() {
   document.getElementById('deck-viewer').classList.remove('active');
   document.body.style.overflow = '';
+}
+
+// Re-open an already-built presentation in the full-screen viewer.
+// Renders from the in-memory store (falls back to the local cache) so it works
+// reliably even inside sandboxed previews where opening the share URL in a new
+// tab would otherwise show a blank page.
+function reopenDeck(idx) {
+  const viewer = document.getElementById('deck-viewer');
+  const content = document.getElementById('deck-content');
+  if (!viewer || !content) return;
+
+  let data = (window._builtDecks && window._builtDecks[idx]) || null;
+
+  // Fallback: rebuild from the local cache keyed by company + event
+  if (!data) {
+    const d = window._lastAnalysis;
+    const o = d && d.outreach_calendar ? d.outreach_calendar[idx] : null;
+    if (d && o) {
+      const cacheKey = `deck-cache:${(d.company||'').replace(/\W/g,'_')}:${(o.event_name||'').replace(/\W/g,'_')}`;
+      const cachedPayload = getCachedDeck(cacheKey);
+      if (cachedPayload) {
+        try {
+          const { company: cc, event: ce, deck: cd } = JSON.parse(cachedPayload);
+          data = { company: cc, event: ce, deck: cd };
+        } catch(e) { /* ignore */ }
+      }
+    }
+  }
+
+  // Last resort: regenerate
+  if (!data) { buildDeck(idx); return; }
+
+  content.innerHTML = renderDeck(data.company, data.event, data.deck);
+  window._currentDeck = { company: data.company, event: data.event, deck: data.deck };
+  viewer.classList.add('active');
+  document.body.style.overflow = 'hidden';
+  viewer.scrollTop = 0;
 }
 
 // Render deck HTML — real photos with SVG fallbacks
