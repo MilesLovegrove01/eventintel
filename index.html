@@ -2559,8 +2559,34 @@ function renderDeck(company, event, deck) {
     return [svgBag(), svgNotebook(), svgBottle()][i % 3];
   }
 
+  // ── Per-deck image de-duplication ─────────────────────────────────────────
+  // Guarantees no photo is ever shown twice within one activation deck. We
+  // reserve the single-photo feature slides first, then hand out merchandise
+  // photos from a pool that skips anything already taken.
+  const usedImages = new Set();
+  function takeImage(preferred, pool) {
+    const candidates = [preferred].concat(pool || []);
+    for (const url of candidates) {
+      if (url && !usedImages.has(url)) { usedImages.add(url); return url; }
+    }
+    return preferred; // pool exhausted (more cards than distinct photos) — accept a repeat
+  }
+
+  // Resolve & reserve the feature-slide photos up front so merch can't collide.
+  const boothPhoto   = takeImage(getBoothPhoto(deck.booth_concept?.title || deck.booth_concept?.description),
+                                 [PHOTOS.booth1, PHOTOS.booth2, PHOTOS.event1]);
+  const peoplePhoto1 = takeImage(PHOTOS.people1, [PHOTOS.people2, PHOTOS.people3, PHOTOS.event1]);
+  const peoplePhoto2 = takeImage(PHOTOS.people2, [PHOTOS.people3, PHOTOS.people1, PHOTOS.event1]);
+  const peoplePhoto3 = takeImage(PHOTOS.people3, [PHOTOS.people1, PHOTOS.people2, PHOTOS.event1]);
+  const signagePhoto = takeImage(PHOTOS.signage, [PHOTOS.booth1, PHOTOS.booth2, PHOTOS.event1]);
+  const heroPhoto    = takeImage(PHOTOS.hero,    [PHOTOS.event1, PHOTOS.booth1, PHOTOS.booth2]);
+
+  // Distinct pool of every product photo, for handing out unique merch images.
+  const PRODUCT_POOL = Array.from(new Set(Object.values(PRODUCT_PHOTOS)));
+
   const merch = (deck.merchandise || []).map((m, i) => {
-    const { photo: productPhoto, type } = getProductPhoto(m.title, m.description);
+    const { photo: preferredPhoto, type } = getProductPhoto(m.title, m.description);
+    const productPhoto = takeImage(preferredPhoto, PRODUCT_POOL);
     const svgFallback = svgForType(type, i);
     return `
     <div class="deck-card" style="padding:0;overflow:hidden;display:flex;flex-direction:column">
@@ -2640,11 +2666,11 @@ function renderDeck(company, event, deck) {
     </div>
     <div style="display:grid;grid-template-rows:1fr 1fr;gap:3px;overflow:hidden">
       <div style="overflow:hidden;height:100%">
-        ${imgWithFallback(PHOTOS.people1, svgPeople1(), 'Human connection at events', 'filter:brightness(0.72) saturate(0.8)')}
+        ${imgWithFallback(peoplePhoto1, svgPeople1(), 'Human connection at events', 'filter:brightness(0.72) saturate(0.8)')}
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px;overflow:hidden">
-        <div style="overflow:hidden">${imgWithFallback(PHOTOS.people2, svgPeople2(), 'Conference energy', 'filter:brightness(0.68) saturate(0.75)')}</div>
-        <div style="overflow:hidden">${imgWithFallback(PHOTOS.people3, svgPeople3(), 'People connecting', 'filter:brightness(0.68) saturate(0.75)')}</div>
+        <div style="overflow:hidden">${imgWithFallback(peoplePhoto2, svgPeople2(), 'Conference energy', 'filter:brightness(0.68) saturate(0.75)')}</div>
+        <div style="overflow:hidden">${imgWithFallback(peoplePhoto3, svgPeople3(), 'People connecting', 'filter:brightness(0.68) saturate(0.75)')}</div>
       </div>
     </div>
     <div class="deck-slide-num">02</div>
@@ -2659,21 +2685,18 @@ function renderDeck(company, event, deck) {
     <div class="deck-slide-num">03</div>
   </div>
 
-  <!-- Slide 04: Trade Stand — real exhibition photo (SVG booth only as 404 fallback) -->
+  <!-- Slide 04: Trade Stand — real exhibition photo on top, ALL copy in its own panel below (nothing sits on the image) -->
   <div class="deck-slide" style="padding:0;min-height:100vh;display:grid;grid-template-rows:58% 42%;background:#0f0e0c">
     <div style="position:relative;overflow:hidden;background:#0f0e0c">
-      <div style="position:absolute;inset:0;width:100%;height:100%">${imgWithFallback(getBoothPhoto(deck.booth_concept?.title || deck.booth_concept?.description), svgBooth(), 'Trade stand', 'filter:brightness(0.82) saturate(0.92)')}</div>
-      <!-- Scrim darkens TOP (behind eyebrow + client logo) and bottom edge so text never gets lost on a bright photo; the middle of the stand stays clear. -->
-      <div style="position:absolute;inset:0;background:linear-gradient(to bottom,rgba(15,14,12,0.6) 0%,rgba(15,14,12,0.12) 26%,rgba(15,14,12,0) 55%,rgba(15,14,12,0.4) 100%);pointer-events:none"></div>
-      <!-- Real client logo chip, top-right so it doesn't cover the stand graphic -->
+      <div style="position:absolute;inset:0;width:100%;height:100%">${imgWithFallback(boothPhoto, svgBooth(), 'Trade stand', 'filter:brightness(0.85) saturate(0.95)')}</div>
+      <!-- Subtle top scrim only, purely so the client logo chip stays crisp. No body copy is placed over the image. -->
+      <div style="position:absolute;inset:0;background:linear-gradient(to bottom,rgba(15,14,12,0.4) 0%,rgba(15,14,12,0) 24%);pointer-events:none"></div>
       ${clientLogoSrc ? `<div class="client-logo-wrap" style="position:absolute;top:22px;right:8%;background:rgba(255,255,255,0.94);border-radius:6px;padding:8px 14px;box-shadow:0 4px 14px rgba(0,0,0,0.3)">
         <img src="${clientLogoSrc}" style="height:30px;width:auto;max-width:140px;object-fit:contain;display:block" alt="${clientName}" onerror="${logoErr}">
       </div>` : ''}
-      <div style="position:absolute;top:28px;left:8%">
-        <div class="deck-eyebrow" style="margin:0">Trade Stand Concept</div>
-      </div>
     </div>
     <div style="padding:36px 8%;display:flex;flex-direction:column;justify-content:center">
+      <div class="deck-eyebrow" style="margin-bottom:10px">Trade Stand Concept</div>
       <div class="deck-heading" style="font-size:clamp(30px,3.8vw,52px);margin-bottom:14px">${deck.booth_concept?.title || 'Booth Concept'}</div>
       <div class="deck-rule" style="margin-bottom:18px"></div>
       <div class="deck-body" style="font-size:clamp(13px,1.3vw,15px)"><p>${deck.booth_concept?.description || ''}</p></div>
@@ -2684,7 +2707,7 @@ function renderDeck(company, event, deck) {
   <!-- Slide 05: Signage — real signage/creative photo left, text right (2-col, so text is never over the image) -->
   <div class="deck-slide" style="padding:0;min-height:100vh;display:grid;grid-template-columns:1fr 1fr;gap:0;background:#0f0e0c">
     <div style="overflow:hidden;position:relative;background:#0f0e0c">
-      <div style="position:absolute;inset:0;width:100%;height:100%">${imgWithFallback(PHOTOS.signage, svgSignage(), 'Signage & creative direction', 'filter:brightness(0.82) saturate(0.95)')}</div>
+      <div style="position:absolute;inset:0;width:100%;height:100%">${imgWithFallback(signagePhoto, svgSignage(), 'Signage & creative direction', 'filter:brightness(0.82) saturate(0.95)')}</div>
     </div>
     <div style="padding:80px 8%;display:flex;flex-direction:column;justify-content:center">
       <div class="deck-eyebrow">Signage & Creative Direction</div>
@@ -2698,7 +2721,7 @@ function renderDeck(company, event, deck) {
   <!-- Slide 06: Hero Activation — people photo left, content right -->
   <div class="deck-slide" style="padding:0;min-height:100vh;display:grid;grid-template-columns:1fr 1fr;gap:0;background:#0f0e0c">
     <div style="overflow:hidden;position:relative">
-      ${imgWithFallback(PHOTOS.hero, svgHero(), 'Brand activation energy', 'filter:brightness(0.58) saturate(0.72)')}
+      ${imgWithFallback(heroPhoto, svgHero(), 'Brand activation energy', 'filter:brightness(0.58) saturate(0.72)')}
       <div style="position:absolute;inset:0;background:linear-gradient(90deg,transparent 40%,rgba(15,14,12,0.88) 100%);pointer-events:none"></div>
     </div>
     <div style="padding:80px 8%;display:flex;flex-direction:column;justify-content:center">
